@@ -1,310 +1,207 @@
-(() => {
-  'use strict';
+window.FramePainter = (() => {
+  const C = window.FrameCatalog;
+  const cream = '#fff0d6';
+  let textureTile;
 
-  const T = window.ViceFrameTemplates;
-  const CREAM = '#fff0d6';
-  const INK = '#221925';
-  let grainCanvas;
-
-  function polygon(ctx, points) {
+  function trace(ctx, vertices) {
     ctx.beginPath();
-    points.forEach(([x, y], index) => index ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+    for (let i=0;i<vertices.length;i++) {
+      const [x,y]=vertices[i];
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
     ctx.closePath();
   }
 
-  function cropGeometry(image, rect, panel = {}) {
-    const imageW = image.naturalWidth || image.width;
-    const imageH = image.naturalHeight || image.height;
-    const zoom = T.clamp(Number(panel.zoom) || 1, 1, 3);
-    const scale = Math.max(rect.w / imageW, rect.h / imageH) * zoom;
-    const w = imageW * scale;
-    const h = imageH * scale;
-    const overflowX = Math.max(0, w - rect.w);
-    const overflowY = Math.max(0, h - rect.h);
-    return {
-      x: rect.x - overflowX * T.clamp(panel.panX ?? 0.5, 0, 1),
-      y: rect.y - overflowY * T.clamp(panel.panY ?? 0.5, 0, 1),
-      w, h, overflowX, overflowY
-    };
+  function crop(image, box, placement) {
+    const scale=Math.max(box.w/image.naturalWidth,box.h/image.naturalHeight)*placement.zoom;
+    const w=image.naturalWidth*scale, h=image.naturalHeight*scale;
+    const extraX=w-box.w, extraY=h-box.h;
+    return {x:box.x-extraX*placement.x,y:box.y-extraY*placement.y,w,h,extraX,extraY};
   }
 
-  function photoFilter(grade, strength) {
-    if (!strength || grade.id === 'clean') return 'none';
-    return grade.filter.replace(/(contrast|saturate|grayscale)\(([\d.]+)\)/g, (_, type, value) => {
-      const neutral = type === 'grayscale' ? 0 : 1;
-      return `${type}(${neutral + (Number(value) - neutral) * strength})`;
+  function grain() {
+    if(textureTile) return textureTile;
+    textureTile=document.createElement('canvas');
+    textureTile.width=textureTile.height=160;
+    const brush=textureTile.getContext('2d');
+    const pixels=brush.createImageData(160,160);
+    let random=15931;
+    for(let offset=0;offset<pixels.data.length;offset+=4) {
+      random=random*16807%2147483647;
+      pixels.data.fill(64+random%128,offset,offset+3);
+      pixels.data[offset+3]=255;
+    }
+    brush.putImageData(pixels,0,0);
+    return textureTile;
+  }
+
+  function wash(ctx,mood,amount,w,h) {
+    if(!mood.opacity || !amount) return;
+    ctx.save();
+    const tint=ctx.createLinearGradient(0,0,w*.22,h);
+    mood.colors.forEach((color,i)=>tint.addColorStop(i/(mood.colors.length-1),color));
+    ctx.fillStyle=tint;
+    ctx.globalCompositeOperation=mood.mode;
+    ctx.globalAlpha=mood.opacity*amount;
+    ctx.fillRect(0,0,w,h);
+    const light=ctx.createRadialGradient(w*.13,h*.12,0,w*.13,h*.12,w*.8);
+    light.addColorStop(0,mood.colors[0]);
+    light.addColorStop(1,'#00000000');
+    ctx.globalCompositeOperation='screen';
+    ctx.globalAlpha=amount*(mood.id==='golden'?.23:.16);
+    ctx.fillStyle=light;
+    ctx.fillRect(0,0,w,h);
+    const edge=ctx.createRadialGradient(w*.5,h*.45,Math.min(w,h)*.18,w*.5,h*.48,Math.max(w,h)*.72);
+    edge.addColorStop(0,'#160f2300');
+    edge.addColorStop(.58,'#160f2314');
+    edge.addColorStop(1,'#170e25');
+    ctx.globalCompositeOperation='multiply';
+    ctx.globalAlpha=amount*(mood.id==='neon'?.45:.3);
+    ctx.fillStyle=edge;
+    ctx.fillRect(0,0,w,h);
+    ctx.restore();
+  }
+
+  function balanceTitle(text) {
+    const title=text.trim().replace(/\s+/g,' ').toUpperCase();
+    if(!title) return [];
+    if(title.length<=18 || !title.includes(' ')) return [title];
+    const words=title.split(' ');
+    let split=1, best=Infinity;
+    for(let index=1;index<words.length;index++) {
+      const gap=Math.abs(words.slice(0,index).join(' ').length-words.slice(index).join(' ').length);
+      if(gap<best) { best=gap; split=index; }
+    }
+    return [words.slice(0,split).join(' '),words.slice(split).join(' ')];
+  }
+
+  function measureLetters(ctx,text,spacing) {
+    let width=0;
+    const letters=[...text].map(char=>{
+      const item={char,x:width};
+      width+=ctx.measureText(char).width+spacing;
+      return item;
     });
+    return {letters,width:Math.max(0,width-spacing)};
   }
 
-  function emptyScene(ctx, rect, index) {
-    const background = ctx.createLinearGradient(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h);
-    background.addColorStop(0, '#34324d');
-    background.addColorStop(0.6, '#895672');
-    background.addColorStop(1, '#e39672');
-    ctx.fillStyle = background;
-    ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-    ctx.fillStyle = '#ffc28d';
-    ctx.globalAlpha = 0.4;
-    ctx.beginPath();
-    ctx.arc(rect.x + rect.w * 0.7, rect.y + rect.h * 0.45, Math.min(rect.w, rect.h) * 0.17, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = CREAM;
-    ctx.textAlign = 'center';
-    ctx.font = `700 ${Math.min(rect.w, rect.h) * 0.038}px Arial, sans-serif`;
-    ctx.fillText(`0${index + 1} / ADD A PHOTO`, rect.x + rect.w / 2, rect.y + rect.h * 0.74);
+  function smallType(ctx,text,x,y,size,spacing,maxWidth) {
+    ctx.save();
+    ctx.font=`700 ${size}px Arial`;
+    const line=measureLetters(ctx,text,spacing);
+    const scale=Math.min(1,maxWidth/Math.max(1,line.width));
+    ctx.translate(x-line.width*scale/2,y);
+    ctx.scale(scale,1);
+    ctx.fillStyle=cream;
+    for(const {char,x:offset} of line.letters) ctx.fillText(char,offset,0);
+    ctx.restore();
   }
 
-  function drawPhotos(ctx, state, assets, layout, grade, strength) {
-    for (const rect of layout) {
-      const panel = state.panels[rect.index] || {};
-      const asset = assets.get(panel.assetId);
+  function headline(ctx,model,w,h) {
+    const lines=balanceTitle(model.caption), unit=Math.min(w,h);
+    const compress=.64;
+    let size=Math.min(unit*(lines.length>1?.215:.26),h*.24);
+    ctx.save();
+    ctx.font=`700 ${size}px FrameHeadline`;
+    const maximum=Math.max(1,...lines.map(line=>measureLetters(ctx,line,-size*.024).width*compress));
+    size*=Math.min(1,(w*.88-size*.12)/maximum);
+    const first=unit*.069+size*.73;
+    let baseline=first;
+    lines.forEach((text,index)=>{
+      baseline=first+index*size*.82;
       ctx.save();
-      polygon(ctx, rect.points);
-      ctx.clip();
-      if (asset?.image?.complete && (asset.image.naturalWidth || asset.image.width)) {
-        const crop = cropGeometry(asset.image, rect, panel);
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = 'high';
-        ctx.filter = photoFilter(grade, strength);
-        ctx.drawImage(asset.image, crop.x, crop.y, crop.w, crop.h);
+      ctx.font=`700 ${size}px FrameHeadline`;
+      const line=measureLetters(ctx,text,-size*.024);
+      ctx.translate(w/2-line.width*compress/2-size*.035,baseline);
+      ctx.transform(compress,0,-.13,1,0,0);
+      ctx.lineJoin='round';
+      ctx.strokeStyle='#221925';
+      ctx.lineWidth=size*.082;
+      ctx.shadowColor='#100716cc';
+      ctx.shadowBlur=unit*.015;
+      ctx.shadowOffsetX=unit*.003;
+      ctx.shadowOffsetY=unit*.009;
+      for(const letter of line.letters) ctx.strokeText(letter.char,letter.x,0);
+      ctx.shadowColor='transparent';
+      ctx.shadowBlur=ctx.shadowOffsetX=ctx.shadowOffsetY=0;
+      const fill=ctx.createLinearGradient(0,-size*.8,0,size*.04);
+      fill.addColorStop(0,'#fff7e8');
+      fill.addColorStop(.5,'#ffefd6');
+      fill.addColorStop(1,model.mood==='neon'?'#ecc0da':'#ffba96');
+      ctx.fillStyle=fill;
+      for(const letter of line.letters) ctx.fillText(letter.char,letter.x,0);
+      ctx.restore();
+    });
+    if(lines.length) smallType(ctx,'A VICE FRAME ORIGINAL',w/2,unit*.042,unit*.0115,unit*.0029,w*.75);
+    if(model.subtitle.trim()) {
+      ctx.shadowColor='#120b1cf2';
+      ctx.shadowBlur=unit*.006;
+      smallType(ctx,model.subtitle.trim().toUpperCase(),w/2,lines.length?baseline+size*.19:unit*.12,unit*.017,unit*.0042,w*.8);
+    }
+    ctx.restore();
+  }
+
+  function render(canvas,model,photos,w,h,selected=-1) {
+    canvas.width=Math.round(w); canvas.height=Math.round(h);
+    const ctx=canvas.getContext('2d',{alpha:false});
+    w=canvas.width; h=canvas.height;
+    const unit=Math.min(w,h), margin=unit*.014;
+    const panels=C.geometry(model.layout,w,h);
+    const mood=C.moods.find(item=>item.id===model.mood);
+    const amount=model.strength/100;
+    ctx.fillStyle=cream;
+    ctx.fillRect(0,0,w,h);
+    for(const panel of panels) {
+      ctx.save();
+      trace(ctx,panel.vertices); ctx.clip();
+      const placement=model.panels[panel.index], photo=photos.get(placement.photo);
+      if(photo) {
+        const position=crop(photo.image,panel,placement);
+        ctx.filter=`contrast(${1+(mood.contrast-1)*amount}) saturate(${1+(mood.saturation-1)*amount}) grayscale(${mood.gray*amount})`;
+        ctx.imageSmoothingQuality='high';
+        ctx.drawImage(photo.image,position.x,position.y,position.w,position.h);
       } else {
-        emptyScene(ctx, rect, rect.index);
+        const empty=ctx.createLinearGradient(panel.x,panel.y,panel.x+panel.w,panel.y+panel.h);
+        empty.addColorStop(0,'#34324d'); empty.addColorStop(1,'#e39672');
+        ctx.fillStyle=empty; ctx.fillRect(panel.x,panel.y,panel.w,panel.h);
       }
       ctx.restore();
     }
-  }
-
-  function drawGrade(ctx, grade, strength, width, height) {
-    if (!grade.wash || !strength) return;
     ctx.save();
-    const wash = ctx.createLinearGradient(0, 0, width * 0.22, height);
-    grade.wash.forEach((color, index) => wash.addColorStop(index / (grade.wash.length - 1), color));
-    ctx.globalCompositeOperation = grade.blend;
-    ctx.globalAlpha = grade.opacity * strength;
-    ctx.fillStyle = wash;
-    ctx.fillRect(0, 0, width, height);
-
-    const glow = ctx.createRadialGradient(width * 0.13, height * 0.12, 0, width * 0.13, height * 0.12, width * 0.8);
-    glow.addColorStop(0, grade.glow);
-    glow.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.globalCompositeOperation = 'screen';
-    ctx.globalAlpha = (grade.id === 'golden' ? 0.23 : 0.16) * strength;
-    ctx.fillStyle = glow;
-    ctx.fillRect(0, 0, width, height);
-
-    const vignette = ctx.createRadialGradient(width * 0.5, height * 0.45, Math.min(width, height) * 0.18,
-      width * 0.5, height * 0.48, Math.max(width, height) * 0.72);
-    vignette.addColorStop(0, 'rgba(22,15,35,0)');
-    vignette.addColorStop(0.58, 'rgba(22,15,35,0.08)');
-    vignette.addColorStop(1, '#170e25');
-    ctx.globalCompositeOperation = 'multiply';
-    ctx.globalAlpha = grade.vignette * strength;
-    ctx.fillStyle = vignette;
-    ctx.fillRect(0, 0, width, height);
-    ctx.restore();
-  }
-
-  function getGrain() {
-    if (grainCanvas) return grainCanvas;
-    grainCanvas = document.createElement('canvas');
-    grainCanvas.width = grainCanvas.height = 192;
-    const ctx = grainCanvas.getContext('2d');
-    const pixels = ctx.createImageData(192, 192);
-    let seed = 7463;
-    for (let i = 0; i < pixels.data.length; i += 4) {
-      seed = (seed * 16807) % 2147483647;
-      const value = 64 + seed % 128;
-      pixels.data[i] = pixels.data[i + 1] = pixels.data[i + 2] = value;
-      pixels.data[i + 3] = 255;
+    ctx.beginPath(); ctx.rect(margin,margin,w-2*margin,h-2*margin); ctx.clip();
+    wash(ctx,mood,amount,w,h);
+    if(model.texture) {
+      ctx.save(); ctx.globalAlpha=.11; ctx.globalCompositeOperation='soft-light';
+      ctx.fillStyle=ctx.createPattern(grain(),'repeat'); ctx.fillRect(0,0,w,h); ctx.restore();
     }
-    ctx.putImageData(pixels, 0, 0);
-    return grainCanvas;
-  }
-
-  function letterMetrics(ctx, text, spacing) {
-    const glyphs = Array.from(text);
-    let x = 0;
-    const positions = glyphs.map(glyph => {
-      const position = x;
-      x += ctx.measureText(glyph).width + spacing;
-      return { glyph, x: position };
-    });
-    return { positions, width: Math.max(0, x - (glyphs.length ? spacing : 0)) };
-  }
-
-  function spacedLine(ctx, text, centerX, y, size, spacing, color, maxWidth = Infinity) {
-    ctx.save();
-    ctx.font = `700 ${size}px Arial, sans-serif`;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-    const metrics = letterMetrics(ctx, text, spacing);
-    const fit = Math.min(1, maxWidth / Math.max(1, metrics.width));
-    ctx.translate(centerX - metrics.width * fit / 2, y);
-    ctx.scale(fit, 1);
-    ctx.fillStyle = color;
-    metrics.positions.forEach(({ glyph, x }) => ctx.fillText(glyph, x, 0));
+    const shade=ctx.createLinearGradient(0,0,0,h*.45);
+    shade.addColorStop(0,'#190e1fa6'); shade.addColorStop(.48,'#190e1f3d'); shade.addColorStop(1,'#190e1f00');
+    ctx.fillStyle=shade; ctx.fillRect(0,0,w,h*.45);
+    const bottom=ctx.createLinearGradient(0,h*.78,0,h);
+    bottom.addColorStop(0,'#160c1c00'); bottom.addColorStop(1,'#160c1cb3');
+    ctx.fillStyle=bottom; ctx.fillRect(0,h*.78,w,h*.22);
     ctx.restore();
-  }
-
-  function captionLines(caption) {
-    const title = String(caption || '').trim().replace(/\s+/g, ' ').toUpperCase();
-    if (title.length <= 18 || !title.includes(' ')) return title ? [title] : [];
-    const words = title.split(' ');
-    let best = 1;
-    let difference = Infinity;
-    for (let i = 1; i < words.length; i++) {
-      const next = Math.abs(words.slice(0, i).join(' ').length - words.slice(i).join(' ').length);
-      if (next < difference) { best = i; difference = next; }
+    ctx.strokeStyle=cream; ctx.lineWidth=unit*.0065; ctx.lineJoin='round';
+    for(const panel of panels) { trace(ctx,panel.vertices); ctx.stroke(); }
+    headline(ctx,model,w,h);
+    ctx.fillStyle=cream; ctx.font=`700 ${unit*.013}px Arial`;
+    ctx.fillText('VICE FRAME',unit*.043,h-unit*.043);
+    ctx.textAlign='right'; ctx.font=`700 ${unit*.0105}px Arial`;
+    ctx.fillText('MADE FOR THE MOMENT',w-unit*.043,h-unit*.043);
+    ctx.fillStyle='#f9ac91'; ctx.fillRect(unit*.043,h-unit*.035,unit*.067,unit*.003);
+    if(selected>=0 && panels[selected]) {
+      ctx.strokeStyle='#ffc1a5'; ctx.lineWidth=unit*.005;
+      ctx.setLineDash([unit*.016,unit*.012]);
+      trace(ctx,panels[selected].vertices); ctx.stroke();
     }
-    return [words.slice(0, best).join(' '), words.slice(best).join(' ')];
-  }
-
-  function drawCaption(ctx, state, width, height, lines) {
-    const short = Math.min(width, height);
-    const xScale = 0.64;
-    let fontSize = Math.min(short * (lines.length > 1 ? 0.215 : 0.26), height * 0.24);
-    ctx.save();
-    ctx.font = `700 ${fontSize}px "ViceDisplay", "Arial Narrow", Arial, sans-serif`;
-    const widths = lines.map(line => letterMetrics(ctx, line, -fontSize * 0.024).width * xScale);
-    const widest = Math.max(1, ...widths);
-    fontSize *= Math.min(1, (width * 0.88 - fontSize * 0.12) / widest);
-    const firstBaseline = short * 0.069 + fontSize * 0.73;
-    let lastBaseline = firstBaseline;
-
-    lines.forEach((line, index) => {
-      const baseline = firstBaseline + index * fontSize * 0.82;
-      lastBaseline = baseline;
-      ctx.save();
-      ctx.font = `700 ${fontSize}px "ViceDisplay", "Arial Narrow", Arial, sans-serif`;
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'alphabetic';
-      const metrics = letterMetrics(ctx, line, -fontSize * 0.024);
-      ctx.translate(width / 2 - metrics.width * xScale / 2 - fontSize * 0.035, baseline);
-      ctx.transform(xScale, 0, -0.13, 1, 0, 0);
-
-      ctx.lineJoin = 'round';
-      ctx.miterLimit = 2;
-      ctx.strokeStyle = INK;
-      ctx.lineWidth = fontSize * 0.082;
-      ctx.shadowColor = 'rgba(16,7,22,0.8)';
-      ctx.shadowBlur = short * 0.015;
-      ctx.shadowOffsetX = short * 0.003;
-      ctx.shadowOffsetY = short * 0.009;
-      metrics.positions.forEach(({ glyph, x }) => ctx.strokeText(glyph, x, 0));
-
-      ctx.shadowColor = 'transparent';
-      ctx.shadowBlur = ctx.shadowOffsetX = ctx.shadowOffsetY = 0;
-      const lettering = ctx.createLinearGradient(0, -fontSize * 0.8, 0, fontSize * 0.04);
-      lettering.addColorStop(0, '#fff7e8');
-      lettering.addColorStop(0.5, '#ffefd6');
-      lettering.addColorStop(1, state.gradeId === 'neon' ? '#ecc0da' : '#ffba96');
-      ctx.fillStyle = lettering;
-      metrics.positions.forEach(({ glyph, x }) => ctx.fillText(glyph, x, 0));
-      ctx.restore();
-    });
-
-    if (lines.length) {
-      spacedLine(ctx, 'A VICE FRAME ORIGINAL', width / 2, short * 0.042, short * 0.0115,
-        short * 0.0029, CREAM, width * 0.75);
-    }
-    const subtitle = String(state.subtitle || '').trim().toUpperCase();
-    if (subtitle) {
-      const y = lines.length ? lastBaseline + fontSize * 0.19 : short * 0.12;
-      ctx.shadowColor = 'rgba(18,11,28,0.95)';
-      ctx.shadowBlur = short * 0.006;
-      ctx.shadowOffsetY = short * 0.002;
-      spacedLine(ctx, subtitle, width / 2, y, short * 0.017, short * 0.0042, CREAM, width * 0.8);
-    }
-    ctx.restore();
-  }
-
-  function drawFooter(ctx, width, height) {
-    const short = Math.min(width, height);
-    const y = height - short * 0.043;
-    ctx.save();
-    ctx.fillStyle = CREAM;
-    ctx.textBaseline = 'alphabetic';
-    ctx.font = `700 ${short * 0.013}px Arial, sans-serif`;
-    ctx.textAlign = 'left';
-    ctx.fillText('VICE FRAME', short * 0.043, y);
-    ctx.font = `700 ${short * 0.0105}px Arial, sans-serif`;
-    ctx.textAlign = 'right';
-    ctx.fillText('MADE FOR THE MOMENT', width - short * 0.043, y);
-    ctx.fillStyle = '#f9ac91';
-    ctx.fillRect(short * 0.043, y + short * 0.008, short * 0.067, short * 0.003);
-    ctx.restore();
-  }
-
-  function render(canvas, state, assets, width, height) {
-    const size = T.getSize(state.sizeId);
-    width = Math.max(1, Math.round(width || size.width));
-    height = Math.max(1, Math.round(height || size.height));
-    if (canvas.width !== width) canvas.width = width;
-    if (canvas.height !== height) canvas.height = height;
-    const ctx = canvas.getContext('2d', { alpha: false });
-    if (!ctx) throw new Error('This browser could not start the canvas editor.');
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.globalAlpha = 1;
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.filter = 'none';
-    ctx.fillStyle = CREAM;
-    ctx.fillRect(0, 0, width, height);
-    const short = Math.min(width, height);
-    const margin = short * 0.014;
-    const layout = T.panelLayout(state.templateId, width, height);
-    const grade = T.getGrade(state.gradeId);
-    const strength = T.clamp((state.intensity ?? 72) / 100, 0, 1);
-    const lines = captionLines(state.caption);
-
-    drawPhotos(ctx, state, assets, layout, grade, strength);
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(margin, margin, width - margin * 2, height - margin * 2);
-    ctx.clip();
-    drawGrade(ctx, grade, strength, width, height);
-    if (state.texture) {
-      ctx.save();
-      ctx.globalAlpha = 0.11;
-      ctx.globalCompositeOperation = 'soft-light';
-      ctx.fillStyle = ctx.createPattern(getGrain(), 'repeat');
-      ctx.fillRect(0, 0, width, height);
-      ctx.restore();
-    }
-
-    if (lines.length || state.subtitle) {
-      const shade = ctx.createLinearGradient(0, 0, 0, height * (lines.length > 1 ? 0.51 : 0.36));
-      shade.addColorStop(0, 'rgba(25,14,31,0.65)');
-      shade.addColorStop(0.48, 'rgba(25,14,31,0.24)');
-      shade.addColorStop(1, 'rgba(25,14,31,0)');
-      ctx.fillStyle = shade;
-      ctx.fillRect(0, 0, width, height * (lines.length > 1 ? 0.51 : 0.36));
-    }
-    const footerShade = ctx.createLinearGradient(0, height * 0.78, 0, height);
-    footerShade.addColorStop(0, 'rgba(22,12,28,0)');
-    footerShade.addColorStop(1, 'rgba(22,12,28,0.7)');
-    ctx.fillStyle = footerShade;
-    ctx.fillRect(0, height * 0.78, width, height * 0.22);
-    ctx.restore();
-
-    ctx.save();
-    ctx.strokeStyle = CREAM;
-    ctx.lineWidth = short * 0.0065;
-    ctx.lineJoin = 'round';
-    layout.forEach(rect => { polygon(ctx, rect.points); ctx.stroke(); });
-    ctx.restore();
-    drawCaption(ctx, state, width, height, lines);
-    drawFooter(ctx, width, height);
     return canvas;
   }
 
-  async function png(state, assets) {
-    if (document.fonts) await document.fonts.ready;
-    const canvas = render(document.createElement('canvas'), state, assets);
-    return new Promise((resolve, reject) => {
-      canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('PNG export failed. Try again.')), 'image/png');
-    });
+  async function exportPNG(model,photos) {
+    await document.fonts.ready;
+    const format=C.formats.find(item=>item.id===model.format);
+    const canvas=render(document.createElement('canvas'),model,photos,format.w,format.h);
+    return new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(new Error('PNG creation failed. Please try again.')),'image/png'));
   }
-
-  window.ViceFrameRenderer = Object.freeze({ render, png, cropGeometry, captionLines });
+  return {render,crop,exportPNG};
 })();

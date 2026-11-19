@@ -1,51 +1,40 @@
-import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join, resolve, sep } from 'node:path';
+// A working gta6-cover-art-01 entry (Node 22, standard library only): the app is this directory's app/ folder, plain
+// static files a desktop browser loads offline (app/index.html and its ES modules, no library and no network
+// request), and the program hands it in. It copies app/ and screenshots/ from beside this file to /output and writes
+// /output/dossier.json, the summary the judge reads, with the vendored make.fun library. Only the plumbing, not the
+// cover art the bounty asks for: Cover Snap, a plain one-photo square cover with a sunset tint and a bold caption,
+// exported as a 1080 x 1080 PNG. Its two sample photos (app/samples/) were made for make.fun with an image model and
+// are free to use. Build your own GTA-style cover maker in its place, put your 3 or 4 PNG or JPEG screenshots in
+// screenshots/ (the first by name is the cover) and run it.
+//
+// Serve it locally with `node serve.ts`, then open http://localhost:8080.
+// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
+//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+
+import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-app.ts';
 
-const repository = fileURLToPath(new URL('.', import.meta.url));
-const output = resolve(process.env.MAKEFUN_OUTPUT_DIR || '/output');
-const appSource = join(repository, 'app');
-const screenshotsSource = join(repository, 'screenshots');
+const here = fileURLToPath(new URL('.', import.meta.url));
+const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-function isInside(path, directory) {
-  return path === directory || path.startsWith(directory + sep);
-}
+mkdirSync(out, { recursive: true });
+cpSync(join(here, 'app'), join(out, 'app'), { recursive: true });
+mkdirSync(join(out, 'screenshots'), { recursive: true });
+if (existsSync(join(here, 'screenshots'))) cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
 
-try {
-  const root = resolve(repository);
-  if (output === root || isInside(root, output) || isInside(output, appSource) || isInside(output, screenshotsSource)) {
-    throw new Error('Choose an output directory separate from the repository root, app, and source screenshots.');
-  }
-
-  mkdirSync(output, { recursive: true });
-  const appOutput = join(output, 'app');
-  rmSync(appOutput, { recursive: true, force: true });
-  cpSync(appSource, appOutput, { recursive: true });
-
-  const screenshotsOutput = join(output, 'screenshots');
-  rmSync(screenshotsOutput, { recursive: true, force: true });
-  if (existsSync(screenshotsSource)) {
-    cpSync(screenshotsSource, screenshotsOutput, { recursive: true });
-  } else {
-    // The local packaging check precedes the orchestrator's real screenshot pass.
-    // This output-only sample gives buildDossier its required image without touching screenshots/.
-    mkdirSync(screenshotsOutput, { recursive: true });
-    cpSync(join(appSource, 'samples', 'pier.jpg'), join(screenshotsOutput, '00-packaging-placeholder.jpg'));
-    console.log('No source screenshots yet. Using an output-only sample placeholder for the local dossier check.');
-  }
-
-  const dossier = buildDossier(output, {
+// The scorer's own caps (reference/gate.json): only text_max_bytes shapes the bytes; the others refuse an entry the
+// scorer would refuse (more than 4 screenshots or one over 256 KiB; more than 993 files in app/ or 48 MiB of app
+// files, in all, or a path under app/ over 1000 bytes: app/ counts beside /output's own 1000-entry cap, its
+// screenshots/ and dossier.json).
+writeFileSync(
+  join(out, 'dossier.json'),
+  buildDossier(out, {
     text_max_bytes: 163840,
     screenshots: { max: 4, max_bytes: 262144 },
     app_max_files: 993,
     app_max_bytes: 50331648,
-    app_path_max_bytes: 1000
-  });
-  writeFileSync(join(output, 'dossier.json'), dossier);
-  console.log(`VICE FRAME packaged in ${output}`);
-  console.log(`dossier.json written (${dossier.byteLength} bytes).`);
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-}
+    app_path_max_bytes: 1000,
+  }),
+);

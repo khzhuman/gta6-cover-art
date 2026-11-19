@@ -4,162 +4,58 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#18151e">
-  <meta name="description" content="Your photos. Main character energy. Make a cinematic collage cover and take it anywhere.">
+  <meta name="description" content="Make your own cinematic photo cover in a private, offline studio.">
   <title>VICE FRAME — Your life, on the cover.</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="style.css">
-  <script src="src/templates.js" defer></script>
-  <script src="src/cover.js" defer></script>
-  <script src="src/main.js" defer></script>
-  <script src="src/sample-pixels.js" defer></script>
+  <script defer src="src/templates.js"></script>
+  <script defer src="src/cover.js"></script>
+  <script defer src="src/main.js"></script>
 </head>
 <body>
-  <svg class="icon-library" aria-hidden="true">
-    <symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
-    <symbol id="icon-upload" viewBox="0 0 24 24"><path d="M12 16V3m-5 5 5-5 5 5M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></symbol>
-    <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 3v13m-5-5 5 5 5-5M4 17v4h16v-4"/></symbol>
-    <symbol id="icon-spark" viewBox="0 0 24 24"><path d="m12 3 2.3 6.7L21 12l-6.7 2.3L12 21l-2.3-6.7L3 12l6.7-2.3L12 3ZM20 2v4m-2-2h4"/></symbol>
-    <symbol id="icon-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol>
-    <symbol id="icon-undo" viewBox="0 0 24 24"><path d="m8 4-5 5 5 5M3 9h10a7 7 0 0 1 0 14"/></symbol>
-    <symbol id="icon-redo" viewBox="0 0 24 24"><path d="m16 4 5 5-5 5m5-5H11a7 7 0 0 0 0 14"/></symbol>
-    <symbol id="icon-expand" viewBox="0 0 24 24"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></symbol>
-    <symbol id="icon-reset" viewBox="0 0 24 24"><path d="M4 10a8 8 0 1 1 2 8M4 4v6h6"/></symbol>
-    <symbol id="icon-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
-    <symbol id="icon-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="m3 17 6-6 4 4 3-3 5 5"/><circle cx="16" cy="8" r="1.5"/></symbol>
-    <symbol id="icon-shield" viewBox="0 0 24 24"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Zm-4 9 3 3 5-6"/></symbol>
-    <symbol id="layout-hero" viewBox="0 0 44 32"><path d="M2 2h40v28H2zM25 2l-2 28m1-14h18"/></symbol>
-    <symbol id="layout-trio" viewBox="0 0 44 32"><path d="M2 2h40v28H2zM15 2v28M29 2v28"/></symbol>
-    <symbol id="layout-quad" viewBox="0 0 44 32"><path d="M2 2h40v28H2zM22 2v28M2 16h40"/></symbol>
-    <symbol id="layout-duo" viewBox="0 0 44 32"><path d="M2 2h40v28H2zM2 14l40 4"/></symbol>
-  </svg>
-
-  <header class="topbar">
-    <a class="brand" href="index.html" aria-label="Vice Frame home">
-      <span class="brand-mark" aria-hidden="true"><span>V</span></span>
-      <span class="brand-type">VICE FRAME<span class="brand-tagline">THE COVER ART STUDIO</span></span>
-    </a>
-    <nav class="header-nav" aria-label="Studio">
-      <span class="nav-active">Cover studio</span>
-      <button id="help-button" class="text-button" type="button">How it works <span class="help-dot">?</span></button>
-    </nav>
-    <button id="demo-button" class="demo-button" type="button"><svg class="icon"><use href="#icon-spark"/></svg> Demo cover <span class="button-arrow">↗</span></button>
+  <header class="masthead">
+    <a class="identity" href="index.html"><b class="monogram">V</b><span>VICE FRAME<small>THE COVER ART STUDIO</small></span></a>
+    <nav aria-label="Studio navigation"><span>Cover studio</span><button id="help" class="quiet">How it works ⓘ</button></nav>
+    <button id="demo" class="demo">✧ &nbsp; Demo cover &nbsp; ↗</button>
   </header>
-
   <main>
-    <section class="intro" aria-labelledby="page-title">
-      <div>
-        <p class="eyebrow"><span></span> YOUR PHOTOS. MAIN CHARACTER ENERGY.</p>
-        <h1 id="page-title">Your life, <em>on the cover.</em></h1>
-      </div>
-      <p class="intro-copy">A little sunset. A little attitude.<br>A cover that could only be yours.</p>
+    <section class="welcome">
+      <div><p class="kicker">◆ &nbsp; YOUR PHOTOS. MAIN CHARACTER ENERGY.</p><h1>Your life, <em>on the cover.</em></h1></div>
+      <p>A little sunset. A little attitude.<br>A cover that could only be yours.</p>
     </section>
-
-    <div class="workspace">
-      <aside class="photo-rail rail" aria-labelledby="photos-heading">
-        <div class="rail-heading"><span class="step-number">01</span><h2 id="photos-heading">Set the scene</h2></div>
-        <input id="photo-input" class="visually-hidden" type="file" accept="image/*" multiple>
-        <label id="upload-zone" class="upload-zone" for="photo-input" tabindex="0" role="button">
-          <span class="upload-icon"><svg class="icon"><use href="#icon-upload"/></svg></span>
-          <strong>Drop your photos here</strong>
-          <span>or <u>browse files</u></span>
-          <small>JPG, PNG, WEBP &amp; more</small>
-        </label>
-
-        <section id="upload-section" class="library-section" hidden>
-          <div class="section-heading"><h3>Your photos</h3><span id="photo-count" class="count-badge">0</span></div>
-          <div id="upload-grid" class="photo-grid"></div>
-        </section>
-
-        <section class="library-section" aria-labelledby="samples-heading">
-          <div class="section-heading"><h3 id="samples-heading">The sample set</h3><span class="tiny-label">6 SCENES</span></div>
-          <div id="sample-grid" class="photo-grid sample-grid"></div>
-        </section>
-        <button id="fill-all-button" class="secondary-button fill-all-button" type="button" disabled><svg class="icon"><use href="#icon-image"/></svg> Use photo in all panels</button>
-        <div class="photo-tip"><span class="tip-star">✳</span><p>Click a panel, then pick a photo.<br>One photo can play every part.</p></div>
-        <div class="rail-bottom"><svg class="icon"><use href="#icon-shield"/></svg><span>Your photos stay on your device.</span></div>
+    <div class="studio">
+      <aside class="library sidebar" aria-label="Photo library">
+        <h2><span class="step">01</span> Set the scene</h2>
+        <input id="files" type="file" accept="image/*" multiple hidden>
+        <button id="browse" class="dropzone"><span>↥</span><strong>Drop your photos here</strong><span>or <u>browse files</u></span><small>JPG, PNG, WEBP &amp; more</small></button>
+        <section id="personal" hidden><h3>Your photos <span id="count"></span></h3><div id="uploads" class="thumbnails"></div></section>
+        <section><h3>The sample set <small>6 SCENES</small></h3><div id="samples" class="thumbnails"></div></section>
+        <button id="repeat" class="outline">▧ &nbsp; Use photo in all panels</button>
+        <p class="photo-advice">✳ &nbsp; Click a panel, then pick a photo.<br>&nbsp; &nbsp; One photo can play every part.</p>
+        <p class="privacy">♧ &nbsp; Your photos stay on your device.</p>
       </aside>
-
-      <section class="stage-panel" aria-label="Cover preview and crop controls">
-        <div class="stage-top">
-          <div class="live-label"><span class="live-dot"></span> LIVE PREVIEW <span class="stage-divider">/</span><span id="preview-size-label">1:1</span></div>
-          <div class="stage-tools">
-            <button id="undo-button" class="icon-button" type="button" aria-label="Undo" title="Undo (Ctrl or Cmd + Z)" disabled><svg class="icon"><use href="#icon-undo"/></svg></button>
-            <button id="redo-button" class="icon-button" type="button" aria-label="Redo" title="Redo (Ctrl or Cmd + Shift + Z)" disabled><svg class="icon"><use href="#icon-redo"/></svg></button>
-            <span class="tool-divider"></span>
-            <button id="view-button" class="icon-button" type="button" aria-label="View cover large" title="View cover large"><svg class="icon"><use href="#icon-expand"/></svg></button>
-          </div>
-        </div>
-        <div id="stage-space" class="stage-space">
-          <span class="stage-coordinate coordinate-top">VF — 001</span>
-          <div id="canvas-wrap" class="canvas-wrap">
-            <canvas id="preview-canvas" width="1080" height="1080" tabindex="0" aria-label="Live cover preview. Click a photo panel and drag to reposition it. Arrow keys also move the selected photo.">Your cover preview requires a browser with canvas support.</canvas>
-            <svg id="panel-outline" class="panel-outline outline-hidden" viewBox="0 0 1080 1080" aria-hidden="true"><path id="outline-path"/></svg>
-          </div>
-          <span class="stage-coordinate coordinate-bottom">THE WORLD IS YOUR CANVAS.</span>
-          <div id="stage-loader" class="stage-loader"><span class="loading-ring"></span><span>Setting the scene…</span></div>
-        </div>
-        <div class="stage-bottom">
-          <div class="panel-picker"><span class="tiny-label">SELECT A PANEL</span><div id="panel-tabs" class="panel-tabs" role="group" aria-label="Photo panels"></div></div>
-          <div class="crop-controls">
-            <div class="crop-hint"><span class="drag-symbol" aria-hidden="true">✥</span><span id="crop-hint">Drag photo to reframe</span></div>
-            <div class="zoom-control"><label for="zoom-input">Zoom</label><input id="zoom-input" type="range" min="1" max="3" value="1" step="0.01"><output id="zoom-value" for="zoom-input">100%</output></div>
-            <button id="reset-crop-button" class="icon-button reset-crop" type="button" aria-label="Reset crop" title="Reset this panel’s crop"><svg class="icon"><use href="#icon-reset"/></svg></button>
-          </div>
-        </div>
+      <section class="preview" aria-label="Live cover editor">
+        <div class="preview-bar"><span>● &nbsp; LIVE PREVIEW &nbsp; / &nbsp; <b id="ratio">1:1</b></span><div><button id="undo" aria-label="Undo">↶</button><button id="redo" aria-label="Redo">↷</button><button id="expand" aria-label="View cover large">⛶</button></div></div>
+        <div id="stage" class="drawing-space"><span class="serial">VF — 001</span><div id="paper"><canvas id="canvas" width="1080" height="1080" tabindex="0" aria-label="Cover preview. Select a panel and drag its photo to crop."></canvas></div><span class="motto">THE WORLD IS YOUR CANVAS.</span></div>
+        <div class="reframe"><div class="panel-row"><small>SELECT A PANEL</small><div id="panels"></div></div><div class="crop-row"><span>✥ &nbsp; Drag photo to reframe</span><label for="zoom">Zoom</label><input id="zoom" type="range" min="1" max="3" step=".01" value="1"><output id="zoom-label">100%</output><button id="reset" aria-label="Reset crop">↺</button></div></div>
       </section>
-
-      <aside class="control-rail rail" aria-labelledby="controls-heading">
-        <div class="rail-heading"><span class="step-number">02</span><h2 id="controls-heading">Make it yours</h2><svg class="icon heading-spark"><use href="#icon-spark"/></svg></div>
-        <section class="control-section">
-          <div class="section-heading"><h3>The layout</h3><span class="tiny-label">4 TEMPLATES</span></div>
-          <div id="template-options" class="template-options" role="group" aria-label="Poster template"></div>
-          <p id="layout-note" class="control-note">One lead. Two supporting scenes.</p>
-        </section>
-        <section class="control-section grade-section">
-          <div class="section-heading"><h3>The mood</h3><span class="tiny-label">COLOR GRADE</span></div>
-          <div id="grade-options" class="grade-options" role="group" aria-label="Color grade"></div>
-          <div class="intensity-control"><label for="intensity-input">Intensity</label><input id="intensity-input" type="range" min="0" max="100" value="72"><output id="intensity-value" for="intensity-input">72%</output></div>
-        </section>
-        <section class="control-section caption-section">
-          <div class="section-heading"><h3>The headline</h3><span id="caption-count" class="tiny-label">11 / 36</span></div>
-          <label class="visually-hidden" for="caption-input">Cover caption</label>
-          <input id="caption-input" class="caption-input" type="text" maxlength="36" value="VICE SUMMER" placeholder="YOUR STORY" spellcheck="false" autocomplete="off">
-          <label class="field-label" for="subtitle-input">Subtitle</label>
-          <input id="subtitle-input" class="subtitle-input" type="text" maxlength="72" value="one last ride" placeholder="A line to set the mood" autocomplete="off">
-          <label class="texture-toggle" for="texture-input"><span>Print texture <span class="subtle-text">a little film grain</span></span><input id="texture-input" type="checkbox" checked><span class="toggle-track" aria-hidden="true"></span></label>
-        </section>
-        <section class="control-section size-section">
-          <div class="section-heading"><h3>The format</h3><span class="tiny-label">POST-READY</span></div>
-          <div id="size-options" class="size-options" role="group" aria-label="Export dimensions"></div>
-          <div class="size-detail"><span id="size-note">1080 × 1080 px</span><span>PNG <span class="quality-dot"></span></span></div>
-        </section>
-        <div class="export-area">
-          <button id="export-button" class="export-button" type="button"><svg class="icon"><use href="#icon-download"/></svg><span>Export cover</span><svg class="icon export-arrow"><use href="#icon-arrow"/></svg></button>
-          <p>Ready for the feed. Made by you.</p>
-        </div>
+      <aside class="settings sidebar" aria-label="Cover settings">
+        <h2><span class="step">02</span> Make it yours <span class="spark">✧</span></h2>
+        <section><h3>The layout <small>4 TEMPLATES</small></h3><div id="layouts" class="option-grid"></div><p id="layout-note" class="note"></p></section>
+        <section><h3>The mood <small>COLOR GRADE</small></h3><div id="moods" class="option-grid"></div><label class="slider-row" for="strength">Intensity <input id="strength" type="range" min="0" max="100" value="72"><output id="strength-label">72%</output></label></section>
+        <section><h3>The headline <small id="caption-count">11 / 36</small></h3><label class="sr-only" for="caption">Cover caption</label><input id="caption" class="headline" maxlength="36" value="VICE SUMMER" spellcheck="false"><label class="field" for="subtitle">Subtitle</label><input id="subtitle" maxlength="72" value="one last ride"><label class="texture">Print texture <small>a little film grain</small><input id="texture" type="checkbox" checked></label></section>
+        <section class="format-section"><h3>The format <small>POST-READY</small></h3><div id="formats" class="format-options"></div><p class="dimensions"><span id="dimensions"></span><span>PNG <i>●</i></span></p></section>
+        <div class="export-box"><button id="export" class="primary">↧ &nbsp; Export cover <span>→</span></button><p>Ready for the feed. Made by you.</p></div>
       </aside>
     </div>
   </main>
-
-  <footer class="page-footer"><span>A GOOD STORY DESERVES A GREAT COVER.</span><span><span class="local-dot"></span> 100% LOCAL <span class="footer-divider">/</span> NO SIGN-UP. JUST CREATE.</span></footer>
-  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-  <div id="drop-overlay" class="drop-overlay" hidden><div><svg class="icon"><use href="#icon-upload"/></svg><h2>Drop it like it’s hot.</h2><p>Your photos are about to become cover material.</p></div></div>
-
-  <dialog id="result-dialog" class="result-dialog" aria-labelledby="result-title">
-    <button class="icon-button dialog-close" type="button" data-close-dialog aria-label="Close cover preview"><svg class="icon"><use href="#icon-close"/></svg></button>
-    <div class="result-layout">
-      <div class="result-art"><img id="result-image" alt="Your finished Vice Frame cover"></div>
-      <div class="result-info"><p class="eyebrow"><span></span> YOUR COVER. YOUR STORY.</p><h2 id="result-title">Main feed<br><em>material.</em></h2><p id="result-description">Your PNG is ready. Take a little main character energy with you.</p><div class="result-spec"><span id="result-dimensions">1080 × 1080</span><span>PNG · FULL RESOLUTION</span></div><a id="download-again" class="export-button" download="vice-frame.png"><svg class="icon"><use href="#icon-download"/></svg> Download PNG <svg class="icon export-arrow"><use href="#icon-arrow"/></svg></a><button class="secondary-button keep-editing" type="button" data-close-dialog>Keep editing <span>↗</span></button><p class="result-privacy"><svg class="icon"><use href="#icon-shield"/></svg> Created entirely on your device.</p></div>
-    </div>
+  <footer><span>A GOOD STORY DESERVES A GREAT COVER.</span><span>● &nbsp; 100% LOCAL &nbsp; / &nbsp; NO SIGN-UP. JUST CREATE.</span></footer>
+  <p id="message" role="status" hidden></p>
+  <dialog id="result" aria-labelledby="result-title">
+    <button class="dismiss" data-dismiss aria-label="Close cover preview">×</button>
+    <div class="finished"><div class="artboard"><img id="finished-image" alt="Your exported cover"></div><div class="receipt"><p class="kicker">◆ &nbsp; YOUR COVER. YOUR STORY.</p><h2 id="result-title">Main feed<br><em>material.</em></h2><p>Your PNG is ready. Save it, share it, make it yours.</p><div class="spec"><span id="export-dimensions"></span><small>PNG · FULL RESOLUTION</small></div><a id="save" class="primary" download="vice-frame.png">↧ &nbsp; Download PNG <span>→</span></a><button class="outline" data-dismiss>Keep editing &nbsp; ↗</button><small class="private-note">♧ &nbsp; Created entirely on your device.</small></div></div>
   </dialog>
-
-  <dialog id="help-dialog" class="help-dialog" aria-labelledby="help-title">
-    <button class="icon-button dialog-close" type="button" data-close-dialog aria-label="Close instructions"><svg class="icon"><use href="#icon-close"/></svg></button>
-    <p class="eyebrow"><span></span> YOUR NEXT COVER STARTS HERE</p><h2 id="help-title">Three steps.<br><em>All you.</em></h2>
-    <ol class="help-steps"><li><strong>Set the scene.</strong><p>Drop one or several photos into the studio. They fill the panels automatically. Or start with a sample scene.</p></li><li><strong>Find your angle.</strong><p>Click a panel, then a photo to swap it. Drag the photo on the cover to pan, and use Zoom to crop closer. Pick a layout, a mood, and a headline.</p></li><li><strong>Make the feed.</strong><p>Choose Square, Portrait, or Wide and hit Export cover for a full-size PNG. The large preview lets you check every detail.</p></li></ol>
-    <p class="help-shortcuts">TIP: Use arrow keys on the cover to pan. Ctrl / Cmd + Z undoes an edit.</p>
-    <button id="help-demo-button" class="export-button" type="button"><svg class="icon"><use href="#icon-spark"/></svg> Try the demo cover <svg class="icon export-arrow"><use href="#icon-arrow"/></svg></button>
-  </dialog>
-  <noscript><div class="noscript-notice">Enable JavaScript to make and export a cover. The studio works entirely on your device.</div></noscript>
+  <dialog id="instructions" class="instructions" aria-labelledby="instructions-title"><button class="dismiss" data-dismiss aria-label="Close instructions">×</button><p class="kicker">YOUR NEXT COVER STARTS HERE</p><h2 id="instructions-title">Three steps. <em>All you.</em></h2><ol><li><strong>Set the scene.</strong><p>Drop photos, browse files, paste an image, or choose a sample. One photo can fill every panel.</p></li><li><strong>Find your angle.</strong><p>Select a panel and a photo. Drag to pan, zoom to crop, then choose a layout, mood and headline.</p></li><li><strong>Make the feed.</strong><p>Pick Square, Portrait or Wide and export your full-resolution PNG.</p></li></ol><p>Arrow keys pan the focused cover. + / − zoom. Ctrl or Cmd + Z undoes an edit.</p><button id="help-demo" class="primary">✧ &nbsp; Try the demo cover</button></dialog>
+  <noscript>Enable JavaScript to use this local cover studio.</noscript>
 </body>
 </html>
