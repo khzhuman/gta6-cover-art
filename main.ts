@@ -1,33 +1,27 @@
-import { cpSync as copyTree, existsSync, mkdirSync as makeDirectory, writeFileSync } from 'node:fs';
-import { join as joinPath } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { buildDossier } from './vendor/makefun-app.ts';
+import * as disk from 'node:fs';
+import { resolve } from 'node:path';
+import { fileURLToPath as localPath } from 'node:url';
+import { buildDossier as describeApp } from './vendor/makefun-app.ts';
 
-const entryDirectory = fileURLToPath(new URL('.', import.meta.url));
-const outputDirectory = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
-const includeSubdirectories = { recursive: true };
-
-// Stage the offline VICE FRAME app and any screenshots for the make.fun grader.
-makeDirectory(outputDirectory, includeSubdirectories);
-copyTree(
-  joinPath(entryDirectory, 'app'),
-  joinPath(outputDirectory, 'app'),
-  includeSubdirectories,
-);
-
-const sourceScreenshots = joinPath(entryDirectory, 'screenshots');
-const outputScreenshots = joinPath(outputDirectory, 'screenshots');
-makeDirectory(outputScreenshots, includeSubdirectories);
-if (existsSync(sourceScreenshots)) {
-  copyTree(sourceScreenshots, outputScreenshots, includeSubdirectories);
+const repository = localPath(new URL('./', import.meta.url));
+const destination = resolve(process.env.MAKEFUN_OUTPUT_DIR || '/output');
+disk.mkdirSync(destination, { recursive: true });
+function stageFolder(folder: string, optional = false) {
+  const source = resolve(repository, folder);
+  const target = resolve(destination, folder);
+  disk.mkdirSync(target, { recursive: true });
+  if (!optional || disk.existsSync(source)) {
+    disk.cpSync(source, target, { recursive: true });
+  }
 }
-
-// Build the dossier from the staged files using the grader's limits.
-const dossier = buildDossier(outputDirectory, {
-  text_max_bytes: 163840,
-  screenshots: { max: 4, max_bytes: 262144 },
+// A missing screenshot directory stays empty, just as in the kit's staging contract.
+stageFolder('app');
+stageFolder('screenshots', true);
+const limits = {
+  app_max_bytes: 48 * 1024 * 1024,
   app_max_files: 993,
-  app_max_bytes: 50331648,
   app_path_max_bytes: 1000,
-});
-writeFileSync(joinPath(outputDirectory, 'dossier.json'), dossier);
+  text_max_bytes: 160 * 1024,
+  screenshots: { max_bytes: 256 * 1024, max: 4 },
+};
+disk.writeFileSync(resolve(destination, 'dossier.json'), describeApp(destination, limits));

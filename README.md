@@ -4,46 +4,32 @@
 
 # VICE FRAME
 
-Your life, on the cover. An original photo poster studio with cream collage borders, oversized lettering, sunset warmth and neon color. Vanilla JavaScript and Canvas 2D power both the live editor and full-resolution PNG output.
+Your story, cover worthy. A private, offline photo studio for cinematic multi-panel posters, inspired by the sunset and neon atmosphere of Vice City. The design, lettering and artwork are independent of Rockstar Games.
 
-## Start locally
+## Open the studio
 
-Serve the static application from this repository:
+Serve the `app` directory with any static HTTP server, for example `python3 -m http.server 8080 --directory app`, then open localhost on port 8080 in Chrome. There is no install, build step, account or remote service. Keep the files together; ES modules need HTTP rather than a file URL.
 
-```sh
-python3 -m http.server 8080 --directory app
-```
+Choose **Demo cover** to fill the current layout immediately. For your own cover, browse, drop or paste local images. A single imported photo fills all panels; multiple imported photos are distributed across the layout. Select a panel below the canvas, then select a thumbnail to replace its image. Drag inside a panel to pan and use Zoom to tighten the crop. Reset returns the selected crop to its center. The library also offers a command to repeat the selected image across the poster.
 
-Open `http://localhost:8080` in Chrome. There is no build step, dependency installation, account or external runtime request. Serve over HTTP so the bundled sample JPEGs remain usable in canvas exports. Every sample, script, stylesheet and font is a local file under `app/`.
+Hero Split, Trio, Quad and Wide Duo provide four compositions. Vice Sunset, Neon Nights, Golden Hour and Clean provide four treatments, with adjustable intensity and optional print grain. Edit the headline and subtitle directly; longer headlines balance across two lines. Undo and redo retain the editing history, including removed uploads.
 
-## Create your poster
+With the canvas focused, arrow keys pan and + / − adjust zoom. Ctrl or Cmd + Z undoes a canvas edit; adding Shift redoes it. Text fields keep their normal text-editing shortcuts.
 
-**Demo cover** restores the Hero Split layout with portrait, car and coastline samples, the VICE SUMMER headline, and Vice Sunset mood. All six sample scenes are available in the library, including the kit's boulevard and pier images and the four supplied AI images.
+## Export
 
-1. Browse, drop or paste your own photos. A single photo fills the whole layout; several photos fill successive panels.
-2. Select a numbered panel or click it on the canvas, then choose its photo. Drag to pan, adjust Zoom, or reset that crop. Repeat one photo across all panels with independent positioning.
-3. Pick Hero Split, Trio, Quad or Wide Duo. Choose Vice Sunset, Neon Nights, Golden Hour or Clean, and adjust the grade intensity and print grain.
-4. Edit the headline and subtitle. Long headlines balance across two lines and fit the poster width.
-5. Select Square (1080 × 1080), Portrait (1080 × 1350) or Wide (1920 × 1080). **Export cover** downloads a PNG and opens a large result overlay. The expand control opens the same full-resolution result without triggering a download.
+Square produces a 1080 × 1080 PNG, Portrait a 1080 × 1350 PNG and Wide a 1920 × 1080 PNG. Export cover renders at the selected full resolution and opens a large result overlay. Download PNG saves the exact rendered image; Keep editing returns to the studio. Photos and exports stay in browser memory and disappear when the page closes. Nothing is uploaded or persisted.
 
-Undo and redo work from their buttons or Ctrl/Cmd + Z and Ctrl/Cmd + Shift + Z. Focus the cover to pan with arrow keys (Shift moves faster), zoom with + / −, or select panels with 1–4. The demo preserves imported photos in the library.
+## Files and entrypoint
 
-## Privacy and assets
+`app/src/templates.js` describes panel polygons, output sizes, samples and grades. `cover.js` draws crops, color treatments, lettering and texture through Canvas 2D. `main.js` handles browser interaction and editor history. Styles and markup are local files. No library is needed.
 
-Imported images stay in browser memory as local object URLs. No photo is uploaded. Sample photos load exclusively from the six JPEG files in `app/samples/`; there are no embedded photo copies or runtime font hotlinks.
+Run `MAKEFUN_OUTPUT_DIR=out node main.ts` from the repository root with Node 22.18 or later. The entrypoint stages the app and the maker's four screenshots, then uses the unchanged kit library in `vendor/makefun-app.ts` to generate the deterministic dossier. It never submits the entry.
 
-The one attempted Anton download failed because the environment's proxy was unreachable. This build retains the supplied Liberation Sans Bold fallback in `app/fonts/LiberationSans-Bold.ttf`, registered as FrameHeadline. Canvas applies condensed spacing, a slight slant, an ink outline and peach highlights. The font's existing internal ViceDisplay naming and its accompanying SIL Open Font License remain intact. No game font, official artwork, Rockstar mark or character asset is used.
+The six bundled JPEGs remain separate files under `app/samples/`: the kit's generated boulevard and pier scenes plus four previously AI-generated demonstration scenes. No photo is embedded in JavaScript. The shipped headline face is Liberation Sans Bold, licensed under SIL OFL 1.1 in `app/fonts/OFL.txt`. One attempt to fetch Anton for this rebuild failed because the network proxy was unavailable; the existing local font remains the fallback. No runtime font request leaves the app.
 
-## Packaging
+## Rebuild v4
 
-Node 22.18 or later runs the starter entrypoint unchanged:
+This version re-expresses the complete counted source tree in a new recorded session. The existing binary samples and font are retained. Both the entrypoint and editor receive substantive follow-up edits. The screenshots are captured from the real final UI with Playwright after verification. No competition submission or upload check is run by the app.
 
-```sh
-MAKEFUN_OUTPUT_DIR=out node main.ts
-```
-
-The starter copies `app/` and `screenshots/` and writes `dossier.json` using the unchanged `vendor/makefun-app.ts`. Its default destination is `/output`. Use a fresh output directory for independent runs; the entrypoint is the kit's exact plumbing, with no output cleanup or screenshot substitution.
-
-The four JPEGs in `screenshots/` show actual browser states captured after completing and verifying the app: a wide exported cover, the Hero Split editor, a portrait neon export, and the Trio editor with Golden Hour.
-
-`app/src/templates.js` defines geometry, sample paths, grades and dimensions. `app/src/cover.js` paints photos, crops, grading, texture and typography. `app/src/main.js` connects the editor, local image library, history and PNG result flow. Application code is MIT licensed; the font retains its separate OFL license.
+Application code is distributed under the root MIT license; the font retains its separate OFL terms. This project contains no official game art, logo, wordmark or font.

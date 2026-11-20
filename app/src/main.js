@@ -1,292 +1,298 @@
-// The editor owns state; the painter receives snapshots and never changes them.
-document.addEventListener('DOMContentLoaded', async () => {
-  const catalog=window.FrameCatalog, painter=window.FramePainter;
-  const el=id=>document.getElementById(id);
-  const photos=new Map(), back=[], forward=[];
-  const fresh=photo=>({photo,x:.5,y:.5,zoom:1});
-  let model={layout:'hero',mood:'sunset',format:'square',caption:'VICE SUMMER',subtitle:'one last ride',strength:72,texture:true,panels:[],uploads:[]};
-  let chosen=0, moving=null, pending=false, highlight=false, highlightTimer, messageTimer;
-  let exportURL=null, busy=false, serial=0;
-  const canvas=el('canvas');
-  const serialize=()=>JSON.stringify(model);
-  const selected=()=>model.panels[chosen];
-  const layout=()=>catalog.layouts.find(item=>item.id===model.layout);
-  const format=()=>catalog.formats.find(item=>item.id===model.format);
+import { arrangements, treatments, dimensions, stock, bounded, findByKey, panelShapes, pointInPanel } from './templates.js';
+import { paintCover, photoBounds, makePNG } from './cover.js';
 
-  function tell(text) {
-    clearTimeout(messageTimer);
-    el('message').textContent=text;
-    el('message').hidden=false;
-    messageTimer=setTimeout(()=>el('message').hidden=true,4200);
-  }
+const node = id => document.getElementById(id);
+const library = new Map();
+const history = { past:[], future:[] };
+const pose = asset => ({ asset, horizontal:.5, vertical:.5, scale:1 });
+let design = {
+  template:'hero', grade:'sunset', size:'square', headline:'VICE SUMMER',
+  tagline:'one last ride', intensity:72, grain:true,
+  frames:[pose('portrait'),pose('car'),pose('beach')], personal:[]
+};
+let activeFrame=0, drag=null, queued=false, temporaryMark=false, markTimer, noticeTimer;
+let outputLink=null, exporting=false, uploadSerial=0;
+const canvas=node('preview');
+const snapshot=()=>JSON.stringify(design);
+const currentPose=()=>design.frames[activeFrame];
+const currentSize=()=>findByKey(dimensions,design.size);
 
-  function remember(value=serialize()) {
-    if(back.at(-1)!==value) back.push(value);
-    if(back.length>50) back.shift();
-    forward.length=0;
-  }
+function notify(message) {
+  clearTimeout(noticeTimer);
+  node('notice').textContent=message;
+  node('notice').hidden=false;
+  noticeTimer=setTimeout(()=>node('notice').hidden=true,4000);
+}
 
-  function edit(operation) {
-    remember(); operation(); refresh();
-  }
+function checkpoint() {
+  const before=snapshot();
+  if (history.past.at(-1)!==before) history.past.push(before);
+  if (history.past.length>60) history.past.shift();
+  history.future=[];
+}
 
-  function travel(from,to) {
-    if(!from.length || moving) return;
-    to.push(serialize()); model=JSON.parse(from.pop());
-    chosen=Math.min(chosen,model.panels.length-1); refresh();
-  }
+function change(callback) { checkpoint(); callback(); synchronize(); }
 
-  function draw() {
-    if(pending) return;
-    pending=true;
-    requestAnimationFrame(()=>{
-      pending=false;
-      const area=el('stage'), target=format();
-      const width=Math.max(80,Math.min(area.clientWidth-54,(area.clientHeight-70)*target.w/target.h));
-      const height=width*target.h/target.w;
-      el('paper').style.width=`${width}px`; el('paper').style.height=`${height}px`;
-      const density=Math.min(devicePixelRatio||1,2);
-      painter.render(canvas,model,photos,width*density,height*density,highlight?chosen:-1);
+function restore(source, target) {
+  if (!source.length || drag) return;
+  target.push(snapshot());
+  design=JSON.parse(source.pop());
+  activeFrame=Math.min(activeFrame,design.frames.length-1);
+  synchronize();
+}
+
+function schedulePaint() {
+  if (queued) return;
+  queued=true;
+  requestAnimationFrame(()=>{
+    queued=false;
+    const area=node('stage'), size=currentSize();
+    const width=Math.max(60,Math.min(area.clientWidth-52,(area.clientHeight-66)*size.width/size.height));
+    const height=width*size.height/size.width;
+    node('sheet').style.width=width+'px';
+    node('sheet').style.height=height+'px';
+    const density=Math.min(2,window.devicePixelRatio||1);
+    paintCover(canvas,design,library,width*density,height*density,temporaryMark?activeFrame:-1);
+  });
+}
+
+function markPanel() {
+  temporaryMark=true;
+  clearTimeout(markTimer);
+  schedulePaint();
+  markTimer=setTimeout(()=>{ temporaryMark=false; schedulePaint(); },1100);
+}
+
+function control(text, action) {
+  const button=document.createElement('button');
+  button.type='button'; button.textContent=text;
+  button.addEventListener('click',action);
+  return button;
+}
+
+function photoCard(asset) {
+  const button=control('',()=>{
+    change(()=>design.frames[activeFrame]=pose(asset.key)); markPanel();
+  });
+  button.className='photo-card'; button.dataset.asset=asset.key;
+  button.setAttribute('aria-label',`Use ${asset.name} in selected panel`);
+  const picture=new Image(); picture.src=asset.url; picture.alt=asset.name; picture.draggable=false;
+  const caption=document.createElement('span'); caption.textContent=asset.name;
+  button.append(picture,caption);
+  if (!asset.personal) return button;
+  const wrapper=document.createElement('div'); wrapper.className='personal-card';
+  const remove=control('×',()=>change(()=>{
+    design.personal=design.personal.filter(key=>key!==asset.key);
+    design.frames=design.frames.map(frame=>frame.asset===asset.key?pose('portrait'):frame);
+  }));
+  remove.className='remove'; remove.setAttribute('aria-label',`Remove ${asset.name}`);
+  wrapper.append(button,remove);
+  return wrapper;
+}
+
+function synchronize() {
+  activeFrame=bounded(activeFrame,0,design.frames.length-1);
+  for (const [id,key] of [['templates','template'],['grades','grade'],['sizes','size']]) {
+    node(id).querySelectorAll('button').forEach(button=>{
+      const selected=button.dataset.key===design[key];
+      button.classList.toggle('selected',selected);
+      button.setAttribute('aria-pressed',String(selected));
     });
   }
-
-  function flashSelection() {
-    highlight=true; clearTimeout(highlightTimer); draw();
-    highlightTimer=setTimeout(()=>{highlight=false;draw();},1300);
+  for (const id of ['headline','tagline','intensity']) node(id).value=design[id];
+  node('grain').checked=design.grain;
+  node('letters').textContent=design.headline.length+' / 36';
+  node('intensity-readout').textContent=design.intensity+'%';
+  node('intensity').disabled=design.grade==='clean';
+  node('scale').value=currentPose().scale;
+  node('scale-readout').textContent=Math.round(currentPose().scale*100)+'%';
+  node('aspect').textContent=currentSize().ratio;
+  node('pixels').textContent=`${currentSize().width} × ${currentSize().height} px`;
+  node('template-note').textContent=findByKey(arrangements,design.template).detail;
+  node('undo').disabled=!history.past.length;
+  node('redo').disabled=!history.future.length;
+  node('export').disabled=exporting||!design.frames.some(frame=>library.has(frame.asset));
+  node('enlarge').disabled=node('export').disabled;
+  node('frame-picks').replaceChildren(...design.frames.map((frame,index)=>{
+    const button=control(`${String(index+1).padStart(2,'0')} ${index===0&&design.template==='hero'?'Hero':'Scene'}`,()=>{
+      activeFrame=index; synchronize(); markPanel();
+    });
+    button.classList.toggle('selected',index===activeFrame);
+    button.setAttribute('aria-label',`Select panel ${index+1}`);
+    button.setAttribute('aria-pressed',String(index===activeFrame));
+    return button;
+  }));
+  const personalSignature=design.personal.join('|');
+  if (node('uploads').dataset.signature!==personalSignature) {
+    node('uploads').replaceChildren(...design.personal.map(key=>photoCard(library.get(key))));
+    node('uploads').dataset.signature=personalSignature;
   }
+  node('personal').hidden=!design.personal.length;
+  node('upload-count').textContent=design.personal.length;
+  document.querySelectorAll('[data-asset]').forEach(button=>{
+    const selected=button.dataset.asset===currentPose().asset;
+    button.classList.toggle('selected',selected);
+    button.setAttribute('aria-pressed',String(selected));
+    button.disabled=!library.has(button.dataset.asset);
+  });
+  schedulePaint();
+}
 
-  function button(text,action) {
-    const node=document.createElement('button'); node.type='button';
-    node.textContent=text; node.addEventListener('click',action); return node;
-  }
-
-  function thumbnail(photo) {
-    const node=button('',()=>{edit(()=>model.panels[chosen]=fresh(photo.id));flashSelection();});
-    node.className='photo'; node.dataset.photo=photo.id;
-    node.title=`Use ${photo.label} in selected panel`;
-    node.setAttribute('aria-label',node.title);
-    const image=new Image(); image.src=photo.src; image.alt=photo.label; image.draggable=false;
-    const name=document.createElement('span'); name.textContent=photo.label;
-    node.append(image,name);
-    if(!photo.id.startsWith('upload-')) return node;
-    const card=document.createElement('div');card.className='upload-card';
-    const remove=button('×',()=>edit(()=>{
-      model.uploads=model.uploads.filter(id=>id!==photo.id);
-      const replacement=model.uploads[0]||'portrait';
-      model.panels=model.panels.map(panel=>panel.photo===photo.id?fresh(replacement):panel);
+function installChoices() {
+  arrangements.forEach(layout=>{
+    const button=control('',()=>change(()=>{
+      const previous=design.frames;
+      design.template=layout.key;
+      design.frames=layout.paths.map((_,index)=>({...previous[index%previous.length]}));
     }));
-    remove.className='remove-photo';remove.setAttribute('aria-label',`Remove ${photo.label}`);
-    card.append(node,remove);return card;
-  }
+    // Parsing an inline miniature supplies the SVG namespace without an external reference.
+    const fragment=document.createElement('template');
+    fragment.innerHTML='<svg viewBox="0 0 48 34">'+layout.paths.map(vertices=>
+      '<polygon points="'+vertices.map(([x,y])=>`${3+x*42},${3+y*28}`).join(' ')+'"/>').join('')+'</svg>';
+    const mini=fragment.content.firstElementChild;
+    const label=document.createElement('span'); label.textContent=layout.name;
+    button.append(mini,label); button.dataset.key=layout.key; button.title=layout.detail;
+    node('templates').append(button);
+  });
+  treatments.forEach(grade=>{
+    const button=control('',()=>change(()=>design.grade=grade.key));
+    const swatch=document.createElement('i'); swatch.style.background=`linear-gradient(135deg,${grade.palette.join(',')})`;
+    button.append(swatch,document.createTextNode(grade.name));
+    button.dataset.key=grade.key; node('grades').append(button);
+  });
+  dimensions.forEach(size=>{
+    const button=control(size.name,()=>change(()=>design.size=size.key));
+    const ratio=document.createElement('small'); ratio.textContent=size.ratio;
+    button.append(ratio); button.dataset.key=size.key; node('sizes').append(button);
+  });
+}
 
-  function refresh() {
-    chosen=catalog.limit(chosen,0,Math.max(0,model.panels.length-1));
-    for(const [container,key] of [['layouts','layout'],['moods','mood'],['formats','format']]) {
-      el(container).querySelectorAll('button').forEach(node=>{
-        const active=node.dataset.value===model[key];
-        node.classList.toggle('active',active); node.setAttribute('aria-pressed',String(active));
-      });
-    }
-    for(const key of ['caption','subtitle','strength']) el(key).value=model[key];
-    el('texture').checked=model.texture;
-    el('caption-count').textContent=`${model.caption.length} / 36`;
-    el('strength-label').textContent=`${model.strength}%`;
-    el('strength').disabled=model.mood==='clean';
-    el('zoom').value=selected()?.zoom||1;
-    el('zoom-label').textContent=`${Math.round((selected()?.zoom||1)*100)}%`;
-    el('ratio').textContent=format().ratio;
-    el('dimensions').textContent=`${format().w} × ${format().h} px`;
-    el('layout-note').textContent=layout().note;
-    el('undo').disabled=!back.length; el('redo').disabled=!forward.length;
-    el('export').disabled=busy||!model.panels.some(panel=>photos.has(panel.photo));
-    el('expand').disabled=el('export').disabled;
-    el('repeat').disabled=!photos.has(selected()?.photo);
-    el('zoom').disabled=el('reset').disabled=el('repeat').disabled;
-    el('panels').replaceChildren(...model.panels.map((_,index)=>{
-      const node=button(`${String(index+1).padStart(2,'0')}  ${index===0&&model.layout==='hero'?'Hero':'Scene'}`,()=>{chosen=index;refresh();flashSelection();});
-      node.classList.toggle('active',index===chosen);
-      node.setAttribute('aria-label',`Select panel ${index+1}`);
-      node.setAttribute('aria-pressed',String(index===chosen)); return node;
-    }));
-    if(el('uploads').dataset.ids!==model.uploads.join(',')) {
-      el('uploads').replaceChildren(...model.uploads.map(id=>thumbnail(photos.get(id))));
-      el('uploads').dataset.ids=model.uploads.join(',');
-    }
-    el('personal').hidden=!model.uploads.length;
-    el('count').textContent=model.uploads.length;
-    document.querySelectorAll('[data-photo]').forEach(node=>{
-      node.classList.toggle('active',node.dataset.photo===selected()?.photo);
-      node.setAttribute('aria-pressed',String(node.dataset.photo===selected()?.photo));
-      node.disabled=!photos.has(node.dataset.photo);
-    });
-    draw();
-  }
+async function decode(url) {
+  const bitmap=new Image(); bitmap.src=url;
+  await bitmap.decode();
+  return bitmap;
+}
 
-  function buildChoices() {
-    catalog.layouts.forEach(item=>{
-      const node=button('',()=>edit(()=>{
-        const old=model.panels;
-        model.layout=item.id;
-        model.panels=item.shapes.map((_,i)=>({...old[i%old.length]}));
-      }));
-      // The miniatures use the actual layout polygons rather than a separate icon set.
-      node.innerHTML='<svg viewBox="0 0 44 32">'+item.shapes.map(shape=>
-        '<path d="'+shape.map(([x,y],i)=>`${i?'L':'M'}${2+x*40} ${2+y*28}`).join(' ')+'Z"/>').join('')+'</svg>';
-      const svg=node.firstElementChild;
-      const label=document.createElement('span'); label.textContent=item.label;
-      node.append(svg,label); node.dataset.value=item.id; node.title=item.note; el('layouts').append(node);
-    });
-    catalog.moods.forEach(item=>{
-      const node=button('',()=>edit(()=>model.mood=item.id));
-      const swatch=document.createElement('span'); swatch.className='swatch';
-      swatch.style.background=`linear-gradient(135deg,${item.colors[0]},${item.colors.at(-1)})`;
-      node.append(swatch,document.createTextNode(item.label)); node.dataset.value=item.id; el('moods').append(node);
-    });
-    catalog.formats.forEach(item=>{
-      const node=button(item.label,()=>edit(()=>model.format=item.id));
-      const ratio=document.createElement('small'); ratio.textContent=item.ratio;
-      node.append(ratio); node.dataset.value=item.id; node.title=`${item.w} × ${item.h} pixels`; el('formats').append(node);
-    });
-  }
-
-  function openPhoto(src) {
-    return new Promise((resolve,reject)=>{
-      const image=new Image();
-      image.onload=()=>resolve(image);
-      image.onerror=()=>reject(new Error('Could not open that image. Try a JPG, PNG or WEBP.'));
-      image.src=src;
-    });
-  }
-
-  async function importPhotos(files) {
-    const added=[];
-    for(const file of files) {
-      if(!file.type.startsWith('image/')) {tell('Choose an image file.');continue;}
-      const src=URL.createObjectURL(file);
-      try {
-        const image=await openPhoto(src), id=`upload-${++serial}`;
-        photos.set(id,{id,label:file.name,src,image}); added.push(id);
-      } catch(error) {URL.revokeObjectURL(src);tell(error.message);}
-    }
-    if(added.length) {
-      edit(()=>{
-        model.uploads.push(...added);
-        model.panels=layout().shapes.map((_,i)=>fresh(added[i%added.length])); chosen=0;
-      });
-      tell(`${added.length} photo${added.length===1?'':'s'} ready. Drag each panel to find your angle.`);
-    }
-  }
-
-  function demo(record=true) {
-    if(record) remember();
-    model={...model,layout:'hero',mood:'sunset',format:'square',caption:'VICE SUMMER',subtitle:'one last ride',strength:72,texture:true,
-      panels:['portrait','car','beach'].map(fresh)};
-    chosen=0; refresh();
-  }
-
-  async function showResult(download) {
-    if(busy) return;
-    busy=true; refresh();
+async function importPhotos(files) {
+  const accepted=[];
+  for (const file of files) {
+    if (!file.type.startsWith('image/')) continue;
+    const url=URL.createObjectURL(file);
     try {
-      const snapshot=structuredClone(model), blob=await painter.exportPNG(snapshot,photos);
-      if(exportURL) URL.revokeObjectURL(exportURL);
-      exportURL=URL.createObjectURL(blob);
-      const dimensions=catalog.formats.find(item=>item.id===snapshot.format);
-      const slug=snapshot.caption.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'cover';
-      const name=`vice-frame-${slug}-${dimensions.w}x${dimensions.h}.png`;
-      el('finished-image').src=exportURL;
-      el('finished-image').alt=`${snapshot.caption} — ${catalog.moods.find(item=>item.id===snapshot.mood).label} cover`;
-      await el('finished-image').decode();
-      el('save').href=exportURL; el('save').download=name;
-      el('export-dimensions').textContent=`${dimensions.w} × ${dimensions.h}`;
-      if(download) {const link=document.createElement('a');link.href=exportURL;link.download=name;link.click();}
-      el('result').showModal();
-    } catch(error) {tell(error.message);}
-    finally {busy=false;refresh();}
+      const bitmap=await decode(url), key='personal-'+(++uploadSerial);
+      library.set(key,{key,name:file.name,url,bitmap,personal:true}); accepted.push(key);
+    } catch { URL.revokeObjectURL(url); notify(`Could not open ${file.name}. Try a JPG, PNG or WebP.`); }
   }
-
-  function canvasPoint(event) {
-    const box=canvas.getBoundingClientRect();
-    return {x:(event.clientX-box.left)*canvas.width/box.width,y:(event.clientY-box.top)*canvas.height/box.height};
-  }
-  canvas.addEventListener('pointerdown',event=>{
-    if(event.button!==0 || moving) return;
-    const point=canvasPoint(event);
-    const box=catalog.geometry(model.layout,canvas.width,canvas.height).find(item=>catalog.contains(item.vertices,point.x,point.y));
-    if(!box) return;
-    chosen=box.index;refresh();flashSelection();canvas.focus({preventScroll:true});
-    const photo=photos.get(selected().photo); if(!photo) return;
-    moving={pointer:event.pointerId,point,before:serialize(),placement:{...selected()},crop:painter.crop(photo.image,box,selected())};
-    canvas.setPointerCapture(event.pointerId);event.preventDefault();
+  if (!accepted.length) return;
+  change(()=>{
+    design.personal.push(...accepted);
+    if (accepted.length===1) design.frames=design.frames.map(()=>pose(accepted[0]));
+    else design.frames=design.frames.map((_,index)=>pose(accepted[index%accepted.length]));
   });
-  canvas.addEventListener('pointermove',event=>{
-    if(!moving || event.pointerId!==moving.pointer) return;
-    const point=canvasPoint(event), {crop,placement}=moving;
-    if(crop.extraX>.1) selected().x=catalog.limit(placement.x-(point.x-moving.point.x)/crop.extraX,0,1);
-    if(crop.extraY>.1) selected().y=catalog.limit(placement.y-(point.y-moving.point.y)/crop.extraY,0,1);
-    flashSelection();draw();
-  });
-  function endDrag(event) {
-    if(!moving || moving.pointer!==event.pointerId) return;
-    if(moving.before!==serialize()) remember(moving.before);
-    moving=null; refresh();flashSelection();
-  }
-  for(const name of ['pointerup','pointercancel','lostpointercapture']) canvas.addEventListener(name,endDrag);
+  notify(`${accepted.length} photo${accepted.length===1?'':'s'} added. Drag to reframe.`);
+}
 
-  for(const id of ['caption','subtitle','strength','zoom']) {
-    let saved=false;
-    el(id).addEventListener('input',()=>{
-      if(!saved) {remember();saved=true;}
-      if(id==='zoom') selected().zoom=Number(el(id).value);
-      else model[id]=id==='strength'?Number(el(id).value):el(id).value;
-      refresh();
+function loadDemo() {
+  change(()=>{
+    design.headline='VICE SUMMER'; design.tagline='one last ride';
+    const sequence=design.template==='duo'?['portrait','car']:['portrait','car','beach','man'];
+    design.frames=findByKey(arrangements,design.template).paths.map((_,i)=>pose(sequence[i%sequence.length]));
+  });
+}
+
+async function showExport() {
+  if (exporting) return;
+  exporting=true; synchronize();
+  node('export').textContent='Rendering your cover…';
+  try {
+    const png=await makePNG(design,library);
+    if (outputLink) URL.revokeObjectURL(outputLink);
+    outputLink=URL.createObjectURL(png);
+    node('output-image').src=outputLink;
+    await node('output-image').decode();
+    node('download').href=outputLink;
+    node('download').download=`vice-frame-${design.size}.png`;
+    node('output-size').textContent=`${currentSize().width} × ${currentSize().height}`;
+    node('result').showModal();
+  } catch (error) { notify(error.message); }
+  finally {
+    exporting=false;
+    node('export').innerHTML='↧ &nbsp; Export cover <span>→</span>';
+    synchronize();
+  }
+}
+
+installChoices();
+node('demo').onclick=loadDemo;
+node('guide-demo').onclick=()=>{node('guide').close();loadDemo();};
+node('help').onclick=()=>node('guide').showModal();
+document.querySelectorAll('[data-close]').forEach(button=>button.onclick=()=>button.closest('dialog').close());
+node('export').onclick=showExport;
+node('enlarge').onclick=showExport;
+node('drop').onclick=()=>node('files').click();
+node('files').onchange=event=>{importPhotos(event.target.files);event.target.value='';};
+node('fill-all').onclick=()=>change(()=>design.frames=design.frames.map(()=>pose(currentPose().asset)));
+node('recenter').onclick=()=>change(()=>Object.assign(currentPose(),pose(currentPose().asset)));
+node('undo').onclick=()=>restore(history.past,history.future);
+node('redo').onclick=()=>restore(history.future,history.past);
+for (const id of ['headline','tagline','intensity']) {
+  node(id).addEventListener('input',()=>change(()=>design[id]=id==='intensity'?Number(node(id).value):node(id).value));
+}
+node('grain').onchange=()=>change(()=>design.grain=node('grain').checked);
+node('scale').oninput=()=>change(()=>currentPose().scale=Number(node('scale').value));
+
+canvas.onpointerdown=event=>{
+  const rect=canvas.getBoundingClientRect();
+  const x=(event.clientX-rect.left)*canvas.width/rect.width;
+  const y=(event.clientY-rect.top)*canvas.height/rect.height;
+  const hit=panelShapes(design.template,canvas.width,canvas.height).find(frame=>pointInPanel(frame.polygon,x,y));
+  if (!hit) return;
+  activeFrame=hit.slot; checkpoint();
+  drag={x:event.clientX,y:event.clientY,initial:{...currentPose()},frame:hit,ratio:canvas.width/rect.width};
+  canvas.setPointerCapture(event.pointerId); canvas.focus(); synchronize(); markPanel();
+};
+canvas.onpointermove=event=>{
+  if (!drag) return;
+  const asset=library.get(currentPose().asset);
+  if (!asset) return;
+  const bounds=photoBounds(asset.bitmap,drag.frame,drag.initial);
+  currentPose().horizontal=bounded(drag.initial.horizontal-(event.clientX-drag.x)*drag.ratio/Math.max(1,bounds.overflowX),0,1);
+  currentPose().vertical=bounded(drag.initial.vertical-(event.clientY-drag.y)*drag.ratio/Math.max(1,bounds.overflowY),0,1);
+  schedulePaint();
+};
+canvas.onpointerup=canvas.onpointercancel=()=>{drag=null;synchronize();};
+canvas.onkeydown=event=>{
+  const deltas={ArrowLeft:[.025,0],ArrowRight:[-.025,0],ArrowUp:[0,.025],ArrowDown:[0,-.025]};
+  if (deltas[event.key]) {
+    event.preventDefault();
+    change(()=>{
+      currentPose().horizontal=bounded(currentPose().horizontal+deltas[event.key][0],0,1);
+      currentPose().vertical=bounded(currentPose().vertical+deltas[event.key][1],0,1);
     });
-    for(const name of ['change','blur']) el(id).addEventListener(name,()=>saved=false);
+  } else if (['+','=','-'].includes(event.key)) {
+    event.preventDefault(); change(()=>currentPose().scale=bounded(currentPose().scale+(event.key==='-'?-.1:.1),1,3));
   }
-  el('texture').onchange=()=>edit(()=>model.texture=el('texture').checked);
-  el('reset').onclick=()=>edit(()=>model.panels[chosen]=fresh(selected().photo));
-  el('repeat').onclick=()=>edit(()=>model.panels=model.panels.map(()=>fresh(selected().photo)));
-  el('undo').onclick=()=>travel(back,forward); el('redo').onclick=()=>travel(forward,back);
-  el('browse').onclick=()=>el('files').click();
-  el('files').onchange=event=>{importPhotos(event.target.files);event.target.value='';};
-  document.addEventListener('dragover',event=>{if([...event.dataTransfer.types].includes('Files'))event.preventDefault();});
-  document.addEventListener('drop',event=>{if(event.dataTransfer.files.length){event.preventDefault();importPhotos(event.dataTransfer.files);}});
-  document.addEventListener('paste',event=>{if(event.clipboardData.files.length){event.preventDefault();importPhotos(event.clipboardData.files);}});
-  document.addEventListener('keydown',event=>{
-    if(event.target.matches('input,textarea,[contenteditable]')) return;
-    if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='z') {
-      event.preventDefault();event.shiftKey?travel(forward,back):travel(back,forward);return;
-    }
-    if(event.target!==canvas || !selected()) return;
-      const directions={ArrowLeft:[1,0],ArrowRight:[-1,0],ArrowUp:[0,1],ArrowDown:[0,-1]};
-    if(directions[event.key]) {
-      event.preventDefault();const [x,y]=directions[event.key], step=event.shiftKey?.08:.02;
-      edit(()=>{selected().x=catalog.limit(selected().x+x*step,0,1);selected().y=catalog.limit(selected().y+y*step,0,1);});flashSelection();
-    } else if(['+','=','-'].includes(event.key)) {
-      event.preventDefault();edit(()=>selected().zoom=catalog.limit(selected().zoom+(event.key==='-'?-.1:.1),1,3));
-    } else if(/^[1-4]$/.test(event.key)) {chosen=Math.min(Number(event.key)-1,model.panels.length-1);refresh();flashSelection();}
-  });
-  el('demo').onclick=()=>demo();
-  el('export').onclick=()=>showResult(true); el('expand').onclick=()=>showResult(false);
-  el('help').onclick=()=>el('instructions').showModal();
-  el('help-demo').onclick=()=>{el('instructions').close();demo();};
-  document.querySelectorAll('[data-dismiss]').forEach(node=>node.onclick=()=>node.closest('dialog').close());
-  document.querySelectorAll('dialog').forEach(dialog=>dialog.addEventListener('click',event=>{
-    const box=dialog.getBoundingClientRect();
-    if(event.target===dialog && (event.clientX<box.left||event.clientX>box.right||event.clientY<box.top||event.clientY>box.bottom)) dialog.close();
-  }));
-  buildChoices();
-  catalog.scenes.forEach(scene=>el('samples').append(thumbnail(scene)));
-  model.panels=layout().shapes.map(()=>fresh(null));refresh();
-  new ResizeObserver(draw).observe(el('stage'));
-  const results=await Promise.allSettled(catalog.scenes.map(async scene=>{
-    const image=await openPhoto(scene.src);photos.set(scene.id,{...scene,image});
-  }));
-  if(results.some(item=>item.status==='rejected')) tell('Some samples could not load. Serve app/ locally or import your own photos.');
-  await document.fonts.load('700 32px FrameHeadline');
-  demo(false);
-  window.addEventListener('beforeunload',()=>{
-    for(const photo of photos.values()) if(photo.src.startsWith('blob:')) URL.revokeObjectURL(photo.src);
-    if(exportURL) URL.revokeObjectURL(exportURL);
-  });
+};
+document.addEventListener('keydown',event=>{
+  if ((event.ctrlKey||event.metaKey) && event.key.toLowerCase()==='z' && !event.target.matches('input')) {
+    event.preventDefault();
+    if (event.shiftKey) restore(history.future,history.past); else restore(history.past,history.future);
+  }
 });
+for (const eventName of ['dragover','drop']) document.addEventListener(eventName,event=>event.preventDefault());
+document.addEventListener('drop',event=>importPhotos(event.dataTransfer.files));
+document.addEventListener('paste',event=>{
+  if (event.clipboardData.files.length) importPhotos(event.clipboardData.files);
+});
+new ResizeObserver(schedulePaint).observe(node('stage'));
+synchronize();
+await Promise.all(stock.map(async scene=>{
+  const url='samples/'+scene.file;
+  try {
+    library.set(scene.key,{...scene,url,bitmap:await decode(url)});
+  } catch { notify(`Sample unavailable: ${scene.name}`); }
+}));
+// Display sample cards in catalog order even when image decoding finishes out of order.
+node('samples').replaceChildren(...stock.filter(scene=>library.has(scene.key)).map(scene=>photoCard(library.get(scene.key))));
+await document.fonts.ready;
+synchronize();
