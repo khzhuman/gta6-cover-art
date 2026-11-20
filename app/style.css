@@ -186,3 +186,33 @@ dialog::backdrop { background: #100c1ce3; backdrop-filter: blur(10px); }
   .result-details h2 { font-size: 32px; }
   .result-details h2 br { display: none; }
 }
+
+.label-edit {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 12px;
+}
+
+.label-edit input {
+  display: block;
+  margin-top: 4px;
+}
+
+#frame-picks {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+#frame-picks button {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+input:is(#role, #sub, #strip, #quote, #paper) {
+  border-color: #765064;
+  background: #1a1420;
+}
+
+@media (max-width: 480px) {
+  .label-edit { grid-template-columns: minmax(0, 1fr); }
+}

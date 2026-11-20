@@ -35,7 +35,7 @@
             <div class="gallery" id="uploads"></div>
           </section>
           <section>
-            <h3>Or start with a scene <small>6 SAMPLES</small></h3>
+            <h3>Or start with a scene <small>10 SAMPLES</small></h3>
             <div class="gallery" id="samples"></div>
           </section>
           <button class="secondary" id="fill-all">Use selected photo in every panel ↗</button>
@@ -45,7 +45,7 @@
 
         <section class="editor" aria-label="Live cover editor">
           <div class="toolbar">
-            <span>● &nbsp; LIVE PREVIEW &nbsp; / &nbsp; <b id="aspect">1:1</b></span>
+            <span>● &nbsp; LIVE PREVIEW &nbsp; / &nbsp; <b id="aspect">16:9</b></span>
             <div>
               <button aria-label="Undo" id="undo">↶</button><button aria-label="Redo" id="redo">↷</button><button aria-label="View cover large" id="enlarge">⛶</button>
             </div>
@@ -64,28 +64,43 @@
               <output id="scale-readout">100%</output>
               <button aria-label="Reset crop" id="recenter">↺</button>
             </div>
+            <div class="label-edit">
+              <label for="role" class="field-label">Panel label
+                <input id="role" maxlength="24">
+              </label>
+              <label for="sub" class="field-label">Sub-caption
+                <input id="sub" maxlength="48">
+              </label>
+            </div>
           </div>
         </section>
 
         <aside class="controls">
           <h2><i>02</i> Make it yours <span>✧</span></h2>
           <section>
-            <h3>The layout <small>4 TEMPLATES</small></h3>
+            <h3>The layout <small>5 TEMPLATES</small></h3>
             <div class="choices" id="templates"></div>
             <p class="hint" id="template-note"></p>
           </section>
           <section>
             <h3>The mood <small>COLOR GRADE</small></h3>
             <div class="choices" id="grades"></div>
-            <label class="intensity">Intensity <input id="intensity" type="range" min="0" max="100" value="72"><output id="intensity-readout">72%</output></label>
+            <label class="intensity">Intensity <input id="intensity" type="range" min="0" max="100" value="85"><output id="intensity-readout">85%</output></label>
           </section>
           <section>
             <h3>The headline <small id="letters">11 / 36</small></h3>
             <label for="headline" class="accessible">Cover caption</label>
             <input id="headline" maxlength="36" spellcheck="false" value="VICE SUMMER">
             <label for="tagline" class="field-label">Subtitle</label>
-            <input id="tagline" maxlength="72" value="one last ride">
+            <input id="tagline" maxlength="72" value="one last summer">
+            <label for="strip" class="field-label">Tagline strip</label>
+            <input id="strip" maxlength="72">
+            <label for="quote" class="field-label">Press quote</label>
+            <input id="quote" maxlength="60">
+            <label for="paper" class="field-label">Paper</label>
+            <input id="paper" maxlength="40">
             <label class="grain">Print texture <small>a little film grain</small><input id="grain" type="checkbox" checked></label>
+            <label class="grain">Halftone dots <small>print-shop texture</small><input id="halftone" type="checkbox" checked></label>
           </section>
           <section class="sizes">
             <h3>The format <small>POST-READY</small></h3>

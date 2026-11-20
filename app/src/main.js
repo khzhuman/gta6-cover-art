@@ -1,351 +1,425 @@
 import { arrangements, treatments, dimensions, stock, bounded, findByKey, panelShapes, pointInPanel } from './templates.js';
-import { paintCover, photoBounds, makePNG } from './cover.js';
+import { makePNG, paintCover, photoBounds } from './cover.js';
 import { displayFont, imageFromURL, objectURL, releaseURL, sampleAsset } from './assets.js';
 
-const $ = id => document.getElementById(id);
-const photos = new Map();
-const undoStack = [], redoStack = [];
-const centered = asset => ({ asset, horizontal: .5, vertical: .5, scale: 1 });
-let cover = {
-  template: 'hero', grade: 'sunset', size: 'square', headline: 'VICE SUMMER',
-  tagline: 'one last ride', intensity: 72, grain: true,
-  frames: ['portrait', 'car', 'beach'].map(centered), personal: []
+const ui = Object.fromEntries(Array.from(document.querySelectorAll('[id]'), node => [node.id, node]));
+const library = new Map();
+const before = [], after = [];
+const copyText = {
+  headline: 'VICE SUMMER',
+  tagline: 'one last summer',
+  strip: 'SEVEN LIVES · ONE COASTLINE · NO WAY BACK',
+  quote: 'PURE GOLDEN-HOUR MAYHEM',
+  paper: 'THE HARBOR GAZETTE'
 };
-let selected = 0, gesture = null, paintPending = false, highlight = false;
-let highlightTimer, messageTimer, exportURL, busy = false, ready = false, serial = 0;
-const preview = $('preview');
-const saveState = () => JSON.stringify(cover);
-const frame = () => cover.frames[selected];
-const format = () => findByKey(dimensions, cover.size);
+const ensembleCast = ['portrait', 'boss', 'driver', 'lifeguard', 'racer', 'man', 'beach'];
+const starterCast = ['portrait', 'car', 'beach', 'man', 'driver', 'boss'];
+const poseFor = asset => ({ asset, horizontal: .5, vertical: .5, scale: 1 });
 
-function tell(message) {
-  clearTimeout(messageTimer);
-  $('notice').textContent = message;
-  $('notice').hidden = false;
-  messageTimer = setTimeout(() => { $('notice').hidden = true; }, 4000);
+function demoPanels(layout) {
+  const cast = layout.key === 'ensemble' ? ensembleCast : starterCast;
+  return {
+    frames: cast.slice(0, layout.paths.length).map(poseFor),
+    labels: structuredClone(layout.labels)
+  };
 }
 
-function remember() {
-  const state = saveState();
-  if (undoStack.at(-1) !== state) undoStack.push(state);
-  if (undoStack.length > 60) undoStack.shift();
-  redoStack.length = 0;
+let design = {
+  template: 'ensemble', grade: 'goldenhour', size: 'wide',
+  ...copyText, ...demoPanels(findByKey(arrangements, 'ensemble')),
+  intensity: 85, grain: true, halftone: true, personal: []
+};
+let active = 0, cropDrag, indicator, previewRequest, noticeTimer;
+let exporting = false, loaded = false, downloadURL, uploadNumber = 0;
+
+const currentPose = () => design.frames[active];
+const currentSize = () => findByKey(dimensions, design.size);
+
+function notify(text) {
+  window.clearTimeout(noticeTimer);
+  ui.notice.hidden = false;
+  ui.notice.textContent = text;
+  noticeTimer = window.setTimeout(() => { ui.notice.hidden = true; }, 4000);
 }
 
-function edit(action) {
-  remember();
-  action();
+function record(snapshot) {
+  before.push(snapshot);
+  if (before.length > 60) before.shift();
+  after.length = 0;
+}
+
+function edit(change) {
+  if (cropDrag) return;
+  const snapshot = structuredClone(design);
+  change();
+  record(snapshot);
   refresh();
 }
 
-function travel(from, to) {
-  if (!from.length || gesture) return;
-  to.push(saveState());
-  cover = JSON.parse(from.pop());
-  selected = Math.min(selected, cover.frames.length - 1);
+function restore(source, destination) {
+  if (cropDrag || source.length === 0) return;
+  destination.push(design);
+  design = source.pop();
   refresh();
 }
 
-function repaint() {
-  if (paintPending) return;
-  paintPending = true;
-  requestAnimationFrame(() => {
-    paintPending = false;
-    const area = $('stage'), size = format();
-    const width = Math.max(60, Math.min(area.clientWidth - 52, (area.clientHeight - 66) * size.width / size.height));
-    const height = width * size.height / size.width;
-    Object.assign($('sheet').style, { width: `${width}px`, height: `${height}px` });
-    const density = Math.min(2, window.devicePixelRatio || 1);
-    paintCover(preview, cover, photos, width * density, height * density, highlight ? selected : -1);
+function updatePreview() {
+  if (previewRequest) return;
+  previewRequest = requestAnimationFrame(() => {
+    previewRequest = 0;
+    const size = currentSize(), aspect = size.width / size.height;
+    const width = Math.max(60, Math.min(ui.stage.clientWidth - 52, (ui.stage.clientHeight - 66) * aspect));
+    const height = width / aspect;
+    const density = Math.min(window.devicePixelRatio || 1, 2);
+    ui.sheet.style.width = width + 'px';
+    ui.sheet.style.height = height + 'px';
+    paintCover(ui.preview, design, library, width * density, height * density, indicator ? active : -1);
   });
 }
 
-function flashPanel() {
-  clearTimeout(highlightTimer);
-  highlight = true;
-  repaint();
-  highlightTimer = setTimeout(() => { highlight = false; repaint(); }, 1100);
+function showSelection() {
+  window.clearTimeout(indicator);
+  indicator = window.setTimeout(() => {
+    indicator = 0;
+    updatePreview();
+  }, 1100);
+  updatePreview();
 }
 
-function button(label, handler) {
-  const element = document.createElement('button');
-  element.type = 'button';
-  element.textContent = label;
-  element.addEventListener('click', handler);
-  return element;
+function action(text, click) {
+  const control = document.createElement('button');
+  control.type = 'button';
+  control.textContent = text;
+  control.onclick = click;
+  return control;
 }
 
-function photoTile(photo) {
-  const tile = button('', () => {
-    edit(() => { cover.frames[selected] = centered(photo.key); });
-    flashPanel();
+function pressed(control, value) {
+  control.classList.toggle('selected', value);
+  control.setAttribute('aria-pressed', String(value));
+}
+
+function imageChoice(item) {
+  const use = action('', () => {
+    edit(() => { design.frames[active] = poseFor(item.key); });
+    showSelection();
   });
-  tile.className = 'photo-card';
-  tile.dataset.asset = photo.key;
-  tile.setAttribute('aria-label', `Use ${photo.name} in selected panel`);
-  const image = new Image();
-  image.src = photo.url;
-  image.alt = photo.name;
-  image.draggable = false;
-  const caption = document.createElement('span');
-  caption.textContent = photo.name;
-  tile.append(image, caption);
-  if (!photo.personal) return tile;
-  const wrapper = document.createElement('div');
-  wrapper.className = 'personal-card';
-  const remove = button('×', () => edit(() => {
-    cover.personal = cover.personal.filter(key => key !== photo.key);
-    cover.frames = cover.frames.map(pose => pose.asset === photo.key ? centered('portrait') : pose);
+  use.dataset.asset = item.key;
+  use.className = 'photo-card';
+  use.setAttribute('aria-label', 'Use ' + item.name + ' in selected panel');
+  const thumbnail = document.createElement('img');
+  thumbnail.alt = item.name;
+  thumbnail.src = item.url;
+  thumbnail.draggable = false;
+  const title = document.createElement('span');
+  title.textContent = item.name;
+  use.append(thumbnail, title);
+  if (!item.personal) return use;
+
+  const card = document.createElement('div');
+  card.className = 'personal-card';
+  const discard = action('×', () => edit(() => {
+    design.personal = design.personal.filter(key => key !== item.key);
+    design.frames = design.frames.map(pose => pose.asset === item.key ? poseFor('portrait') : pose);
   }));
-  remove.className = 'remove';
-  remove.setAttribute('aria-label', `Remove ${photo.name}`);
-  wrapper.append(tile, remove);
-  return wrapper;
+  discard.className = 'remove';
+  discard.setAttribute('aria-label', 'Remove ' + item.name);
+  card.append(use, discard);
+  return card;
 }
+
+const fields = Object.keys(copyText);
+const toggles = ['grain', 'halftone'];
+const choiceGroups = [['templates', 'template'], ['grades', 'grade'], ['sizes', 'size']];
 
 function refresh() {
-  selected = bounded(selected, 0, cover.frames.length - 1);
-  for (const [group, property] of [['templates', 'template'], ['grades', 'grade'], ['sizes', 'size']]) {
-    $(group).querySelectorAll('button').forEach(element => {
-      const pressed = element.dataset.key === cover[property];
-      element.classList.toggle('selected', pressed);
-      element.setAttribute('aria-pressed', String(pressed));
-    });
+  active = Math.min(active, design.frames.length - 1);
+  for (const [id, property] of choiceGroups) {
+    for (const control of ui[id].children) pressed(control, control.dataset.key === design[property]);
   }
-  ['headline', 'tagline', 'intensity'].forEach(id => { $(id).value = cover[id]; });
-  $('grain').checked = cover.grain;
-  $('letters').textContent = `${cover.headline.length} / 36`;
-  $('intensity-readout').textContent = `${cover.intensity}%`;
-  $('intensity').disabled = cover.grade === 'clean';
-  $('scale').value = frame().scale;
-  $('scale-readout').textContent = `${Math.round(frame().scale * 100)}%`;
-  $('aspect').textContent = format().ratio;
-  $('pixels').textContent = `${format().width} × ${format().height} px`;
-  $('template-note').textContent = findByKey(arrangements, cover.template).detail;
-  $('undo').disabled = undoStack.length === 0;
-  $('redo').disabled = redoStack.length === 0;
-  $('export').disabled = busy || !ready || !cover.frames.some(pose => photos.has(pose.asset));
-  $('enlarge').disabled = $('export').disabled;
-  $('frame-picks').replaceChildren(...cover.frames.map((pose, index) => {
-    const role = index === 0 && cover.template === 'hero' ? 'Hero' : 'Scene';
-    const pick = button(`${String(index + 1).padStart(2, '0')} ${role}`, () => {
-      selected = index;
-      refresh();
-      flashPanel();
-    });
-    pick.classList.toggle('selected', index === selected);
-    pick.setAttribute('aria-label', `Select panel ${index + 1}`);
-    pick.setAttribute('aria-pressed', String(index === selected));
-    return pick;
-  }));
-  const signature = cover.personal.join('|');
-  if ($('uploads').dataset.signature !== signature) {
-    $('uploads').replaceChildren(...cover.personal.map(key => photoTile(photos.get(key))));
-    $('uploads').dataset.signature = signature;
-  }
-  $('personal').hidden = cover.personal.length === 0;
-  $('upload-count').textContent = cover.personal.length;
-  document.querySelectorAll('[data-asset]').forEach(tile => {
-    const pressed = tile.dataset.asset === frame().asset;
-    tile.classList.toggle('selected', pressed);
-    tile.setAttribute('aria-pressed', String(pressed));
-    tile.disabled = !photos.has(tile.dataset.asset);
-  });
-  repaint();
-}
+  for (const field of [...fields, 'intensity']) ui[field].value = design[field];
+  for (const field of toggles) ui[field].checked = design[field];
+  const { role, sub } = design.labels[active];
+  ui.role.value = role;
+  ui.sub.value = sub;
+  ui.letters.textContent = design.headline.length + ' / 36';
+  ui['intensity-readout'].value = design.intensity + '%';
+  ui.intensity.disabled = design.grade === 'clean';
+  ui.scale.value = currentPose().scale;
+  ui['scale-readout'].value = Math.round(currentPose().scale * 100) + '%';
+  const { ratio, width, height } = currentSize();
+  ui.aspect.textContent = ratio;
+  ui.pixels.textContent = width + ' × ' + height + ' px';
+  ui['template-note'].textContent = findByKey(arrangements, design.template).detail;
+  ui.undo.disabled = !before.length;
+  ui.redo.disabled = !after.length;
+  const canExport = loaded && !exporting && design.frames.some(({ asset }) => library.has(asset));
+  ui.export.disabled = ui.enlarge.disabled = !canExport;
 
-function buildChoices() {
-  const svgNS = 'http://www.w3.org/2000/svg';
-  for (const layout of arrangements) {
-    const pick = button('', () => edit(() => {
-      const previous = cover.frames;
-      cover.template = layout.key;
-      cover.frames = layout.paths.map((_, i) => ({ ...previous[i % previous.length] }));
-    }));
-    const miniature = document.createElementNS(svgNS, 'svg');
-    miniature.setAttribute('viewBox', '0 0 48 34');
-    for (const vertices of layout.paths) {
-      const polygon = document.createElementNS(svgNS, 'polygon');
-      polygon.setAttribute('points', vertices.map(([x, y]) => `${3 + x * 42},${3 + y * 28}`).join(' '));
-      miniature.append(polygon);
+  const picks = ui['frame-picks'];
+  while (picks.childElementCount > design.labels.length) picks.lastElementChild.remove();
+  for (const [index, label] of design.labels.entries()) {
+    let choice = picks.children[index];
+    if (!choice) {
+      choice = action('', () => {
+        if (cropDrag) return;
+        active = index;
+        refresh();
+        showSelection();
+      });
+      picks.append(choice);
     }
-    const label = document.createElement('span');
-    label.textContent = layout.name;
-    pick.append(miniature, label);
-    pick.dataset.key = layout.key;
-    pick.title = layout.detail;
-    $('templates').append(pick);
+    const number = String(index + 1).padStart(2, '0');
+    choice.textContent = label.role.trim() ? number + ' ' + label.role.toUpperCase() : number;
+    choice.setAttribute('aria-label', 'Select panel ' + choice.textContent);
+    pressed(choice, index === active);
   }
-  for (const grade of treatments) {
-    const pick = button('', () => edit(() => { cover.grade = grade.key; }));
-    const swatch = document.createElement('i');
-    swatch.style.background = `linear-gradient(135deg,${grade.palette.join(',')})`;
-    pick.append(swatch, document.createTextNode(grade.name));
-    pick.dataset.key = grade.key;
-    $('grades').append(pick);
+  const signature = design.personal.join(',');
+  if (signature !== ui.uploads.dataset.signature) {
+    ui.uploads.replaceChildren(...design.personal.map(key => imageChoice(library.get(key))));
+    ui.uploads.dataset.signature = signature;
   }
-  for (const size of dimensions) {
-    const pick = button(size.name, () => edit(() => { cover.size = size.key; }));
+  ui.personal.hidden = !design.personal.length;
+  ui['upload-count'].textContent = design.personal.length;
+  for (const tile of document.querySelectorAll('[data-asset]')) {
+    pressed(tile, tile.dataset.asset === currentPose().asset);
+  }
+  updatePreview();
+}
+
+function layoutIcon(layout) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const icon = document.createElementNS(ns, 'svg');
+  icon.setAttribute('viewBox', '0 0 48 34');
+  icon.setAttribute('aria-hidden', 'true');
+  for (const path of layout.paths) {
+    const shape = document.createElementNS(ns, 'polygon');
+    shape.setAttribute('points', path.map(([u, v]) => [3 + 42 * u, 3 + 28 * v].join(',')).join(' '));
+    icon.append(shape);
+  }
+  return icon;
+}
+
+function buildCatalogs() {
+  for (const layout of arrangements) {
+    const tile = action('', () => edit(() => {
+      const previous = design.frames;
+      design.frames = layout.paths.map((_, slot) => ({ ...previous[slot % previous.length] }));
+      design.template = layout.key;
+      design.labels = structuredClone(layout.labels);
+    }));
+    const name = document.createElement('span');
+    name.textContent = layout.name;
+    tile.title = layout.detail;
+    tile.dataset.key = layout.key;
+    tile.append(layoutIcon(layout), name);
+    ui.templates.append(tile);
+  }
+  for (const treatment of treatments) {
+    const tile = action(treatment.name, () => edit(() => { design.grade = treatment.key; }));
+    const sample = document.createElement('i');
+    sample.style.backgroundImage = 'linear-gradient(135deg, ' + treatment.palette.join(', ') + ')';
+    tile.prepend(sample);
+    tile.dataset.key = treatment.key;
+    ui.grades.append(tile);
+  }
+  for (const dimension of dimensions) {
+    const tile = action(dimension.name, () => edit(() => { design.size = dimension.key; }));
     const ratio = document.createElement('small');
-    ratio.textContent = size.ratio;
-    pick.append(ratio);
-    pick.dataset.key = size.key;
-    $('sizes').append(pick);
+    ratio.textContent = dimension.ratio;
+    tile.append(ratio);
+    tile.dataset.key = dimension.key;
+    ui.sizes.append(tile);
   }
 }
 
-async function addPhotos(files) {
-  const imported = [];
+async function importImages(files) {
+  const keys = [];
   for (const file of files) {
     if (!file.type.startsWith('image/')) continue;
     const url = objectURL(file);
     try {
       const bitmap = await imageFromURL(url);
-      const key = `personal-${++serial}`;
-      photos.set(key, { key, name: file.name, url, bitmap, personal: true });
-      imported.push(key);
+      const key = 'upload-' + ++uploadNumber;
+      library.set(key, { key, name: file.name, url, bitmap, personal: true });
+      keys.push(key);
     } catch {
       releaseURL(url);
-      tell(`Could not open ${file.name}. Try a JPG, PNG or WebP.`);
+      notify('Could not open ' + file.name + '. Try a JPG, PNG or WebP.');
     }
   }
-  if (!imported.length) return;
+  if (!keys.length) return;
+  if (cropDrag) finishCrop();
   edit(() => {
-    cover.personal.push(...imported);
-    cover.frames = cover.frames.map((_, i) => centered(imported[i % imported.length]));
+    design.personal = design.personal.concat(keys);
+    design.frames = design.frames.map((_, index) => poseFor(keys[index % keys.length]));
   });
-  tell(`${imported.length} photo${imported.length === 1 ? '' : 's'} added. Drag to reframe.`);
+  notify(keys.length === 1 ? '1 photo added. Drag to reframe.' : keys.length + ' photos added. Drag to reframe.');
 }
 
 function demo() {
   edit(() => {
-    cover.headline = 'VICE SUMMER';
-    cover.tagline = 'one last ride';
-    const cast = cover.template === 'duo' ? ['portrait', 'car'] : ['portrait', 'car', 'beach', 'man'];
-    cover.frames = findByKey(arrangements, cover.template).paths.map((_, i) => centered(cast[i % cast.length]));
+    const layout = findByKey(arrangements, design.template);
+    Object.assign(design, copyText, demoPanels(layout));
   });
 }
 
-async function exportCover() {
-  if (busy || !ready) return;
-  busy = true;
+async function openExport() {
+  if (ui.export.disabled) return;
+  const original = [...ui.export.childNodes];
+  const snapshot = structuredClone(design);
+  const size = findByKey(dimensions, snapshot.size);
+  exporting = true;
   refresh();
-  $('export').textContent = 'Rendering your cover…';
-  // Use one immutable design for the pixels, filename and dimensions.
-  const exporting = JSON.parse(saveState());
+  ui.export.textContent = 'Rendering your cover…';
   try {
-    const blob = await makePNG(exporting, photos);
-    releaseURL(exportURL);
-    exportURL = objectURL(blob);
-    $('output-image').src = exportURL;
-    await $('output-image').decode();
-    $('download').href = exportURL;
-    $('download').download = `vice-frame-${exporting.size}.png`;
-    const size = findByKey(dimensions, exporting.size);
-    $('output-size').textContent = `${size.width} × ${size.height}`;
-    $('result').showModal();
+    const url = objectURL(await makePNG(snapshot, library));
+    releaseURL(downloadURL);
+    downloadURL = url;
+    ui['output-image'].src = url;
+    await ui['output-image'].decode();
+    ui.download.href = url;
+    ui.download.download = 'vice-frame-' + snapshot.size + '.png';
+    ui['output-size'].textContent = size.width + ' × ' + size.height;
+    ui.result.showModal();
   } catch (error) {
-    tell(error.message);
+    notify(error.message);
   } finally {
-    busy = false;
-    const arrow = document.createElement('span');
-    arrow.textContent = '→';
-    $('export').replaceChildren(document.createTextNode('↧ \u00a0 Export cover '), arrow);
+    exporting = false;
+    ui.export.replaceChildren(...original);
     refresh();
   }
 }
 
-function bindControls() {
-  $('demo').onclick = demo;
-  $('guide-demo').onclick = () => { $('guide').close(); demo(); };
-  $('help').onclick = () => $('guide').showModal();
-  document.querySelectorAll('[data-close]').forEach(element => {
-    element.onclick = () => element.closest('dialog').close();
+function bindEditor() {
+  for (const field of fields) {
+    ui[field].oninput = event => edit(() => { design[field] = event.target.value; });
+  }
+  for (const field of ['role', 'sub']) {
+    ui[field].oninput = event => edit(() => { design.labels[active][field] = event.target.value; });
+  }
+  for (const field of toggles) {
+    ui[field].onchange = event => edit(() => { design[field] = event.target.checked; });
+  }
+  ui.intensity.oninput = event => edit(() => { design.intensity = event.target.valueAsNumber; });
+  ui.scale.oninput = event => edit(() => { currentPose().scale = event.target.valueAsNumber; });
+  ui.recenter.onclick = () => edit(() => { design.frames[active] = poseFor(currentPose().asset); });
+  ui['fill-all'].onclick = () => edit(() => {
+    const asset = currentPose().asset;
+    design.frames = design.frames.map(() => poseFor(asset));
   });
-  $('export').onclick = $('enlarge').onclick = exportCover;
-  $('drop').onclick = () => $('files').click();
-  $('files').onchange = event => {
-    addPhotos(event.target.files);
-    event.target.value = '';
+  ui.undo.onclick = () => restore(before, after);
+  ui.redo.onclick = () => restore(after, before);
+  ui.demo.onclick = demo;
+  ui.help.onclick = () => ui.guide.showModal();
+  ui['guide-demo'].onclick = () => {
+    ui.guide.close();
+    demo();
   };
-  $('fill-all').onclick = () => edit(() => { cover.frames = cover.frames.map(() => centered(frame().asset)); });
-  $('recenter').onclick = () => edit(() => Object.assign(frame(), centered(frame().asset)));
-  $('undo').onclick = () => travel(undoStack, redoStack);
-  $('redo').onclick = () => travel(redoStack, undoStack);
-  for (const id of ['headline', 'tagline', 'intensity']) {
-    $(id).oninput = () => edit(() => { cover[id] = id === 'intensity' ? Number($(id).value) : $(id).value; });
+  for (const close of document.querySelectorAll('[data-close]')) {
+    close.onclick = () => close.closest('dialog').close();
   }
-  $('grain').onchange = () => edit(() => { cover.grain = $('grain').checked; });
-  $('scale').oninput = () => edit(() => { frame().scale = Number($('scale').value); });
+  ui.enlarge.onclick = ui.export.onclick = openExport;
+  ui.drop.onclick = () => ui.files.click();
+  ui.files.onchange = () => {
+    importImages(Array.from(ui.files.files));
+    ui.files.value = '';
+  };
+  document.addEventListener('dragover', event => event.preventDefault());
+  document.addEventListener('drop', event => {
+    event.preventDefault();
+    importImages(Array.from(event.dataTransfer.files));
+  });
+  document.addEventListener('paste', event => importImages(Array.from(event.clipboardData.files)));
 }
 
-function bindCanvas() {
-  preview.onpointerdown = event => {
-    const rect = preview.getBoundingClientRect();
-    const ratio = preview.width / rect.width;
-    const x = (event.clientX - rect.left) * ratio;
-    const y = (event.clientY - rect.top) * preview.height / rect.height;
-    const hit = panelShapes(cover.template, preview.width, preview.height).find(panel => pointInPanel(panel.polygon, x, y));
-    if (!hit) return;
-    selected = hit.slot;
-    remember();
-    gesture = { x: event.clientX, y: event.clientY, pose: { ...frame() }, panel: hit, ratio };
-    preview.setPointerCapture(event.pointerId);
-    preview.focus();
+function finishCrop(event) {
+  if (!cropDrag || (event && event.pointerId !== cropDrag.id)) return;
+  const { snapshot, pose } = cropDrag;
+  cropDrag = null;
+  const current = currentPose();
+  if (current.horizontal !== pose.horizontal || current.vertical !== pose.vertical) record(snapshot);
+  refresh();
+}
+
+function bindPreview() {
+  ui.preview.onpointerdown = event => {
+    if (cropDrag || event.button !== 0) return;
+    const box = ui.preview.getBoundingClientRect();
+    const sx = ui.preview.width / box.width;
+    const sy = ui.preview.height / box.height;
+    const x = (event.clientX - box.left) * sx;
+    const y = (event.clientY - box.top) * sy;
+    const panels = panelShapes(design.template, ui.preview.width, ui.preview.height);
+    const panel = panels.find(({ polygon }) => pointInPanel(polygon, x, y));
+    if (!panel) return;
+    active = panel.slot;
+    const pose = { ...currentPose() };
+    const image = library.get(pose.asset)?.bitmap;
+    cropDrag = {
+      id: event.pointerId, startX: event.clientX, startY: event.clientY, sx, sy,
+      pose, crop: image && photoBounds(image, panel, pose), snapshot: structuredClone(design)
+    };
+    ui.preview.setPointerCapture(event.pointerId);
+    ui.preview.focus();
     refresh();
-    flashPanel();
+    showSelection();
   };
-  preview.onpointermove = event => {
-    if (!gesture) return;
-    const photo = photos.get(frame().asset);
-    if (!photo) return;
-    const crop = photoBounds(photo.bitmap, gesture.panel, gesture.pose);
-    frame().horizontal = bounded(gesture.pose.horizontal - (event.clientX - gesture.x) * gesture.ratio / Math.max(1, crop.overflowX), 0, 1);
-    frame().vertical = bounded(gesture.pose.vertical - (event.clientY - gesture.y) * gesture.ratio / Math.max(1, crop.overflowY), 0, 1);
-    repaint();
+  ui.preview.onpointermove = event => {
+    if (event.pointerId !== cropDrag?.id || !cropDrag.crop) return;
+    const { pose, crop, startX, startY, sx, sy } = cropDrag;
+    const dx = (event.clientX - startX) * sx;
+    const dy = (event.clientY - startY) * sy;
+    if (crop.overflowX > 0) currentPose().horizontal = bounded(pose.horizontal - dx / crop.overflowX, 0, 1);
+    if (crop.overflowY > 0) currentPose().vertical = bounded(pose.vertical - dy / crop.overflowY, 0, 1);
+    updatePreview();
   };
-  preview.onpointerup = preview.onpointercancel = () => { gesture = null; refresh(); };
-  preview.onkeydown = event => {
-    const moves = { ArrowLeft: [.025, 0], ArrowRight: [-.025, 0], ArrowUp: [0, .025], ArrowDown: [0, -.025] };
-    const move = moves[event.key];
-    if (move) {
+  ui.preview.onpointerup = ui.preview.onpointercancel = ui.preview.onlostpointercapture = finishCrop;
+
+  const arrows = { ArrowLeft: [.025, 0], ArrowRight: [-.025, 0], ArrowUp: [0, .025], ArrowDown: [0, -.025] };
+  ui.preview.onkeydown = event => {
+    const pan = arrows[event.key];
+    if (pan) {
       event.preventDefault();
       edit(() => {
-        frame().horizontal = bounded(frame().horizontal + move[0], 0, 1);
-        frame().vertical = bounded(frame().vertical + move[1], 0, 1);
+        const pose = currentPose();
+        pose.horizontal = bounded(pose.horizontal + pan[0], 0, 1);
+        pose.vertical = bounded(pose.vertical + pan[1], 0, 1);
       });
-    } else if (['+', '=', '-'].includes(event.key)) {
+    } else if (event.key === '+' || event.key === '=' || event.key === '-') {
       event.preventDefault();
-      edit(() => { frame().scale = bounded(frame().scale + (event.key === '-' ? -.1 : .1), 1, 3); });
+      edit(() => {
+        const pose = currentPose();
+        pose.scale = bounded(pose.scale + (event.key === '-' ? -.1 : .1), 1, 3);
+      });
     }
   };
   document.addEventListener('keydown', event => {
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z' && !event.target.matches('input')) {
-      event.preventDefault();
-      if (event.shiftKey) travel(redoStack, undoStack);
-      else travel(undoStack, redoStack);
-    }
+    if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z' || event.target.matches('input')) return;
+    event.preventDefault();
+    if (event.shiftKey) restore(after, before);
+    else restore(before, after);
   });
-  for (const type of ['dragover', 'drop']) document.addEventListener(type, event => event.preventDefault());
-  document.addEventListener('drop', event => addPhotos(event.dataTransfer.files));
-  document.addEventListener('paste', event => {
-    if (event.clipboardData.files.length) addPhotos(event.clipboardData.files);
-  });
-  new ResizeObserver(repaint).observe($('stage'));
+  new ResizeObserver(updatePreview).observe(ui.stage);
 }
 
-buildChoices();
-bindControls();
-bindCanvas();
+buildCatalogs();
+bindEditor();
+bindPreview();
 refresh();
-await Promise.all([
-  displayFont().catch(() => tell('Display font unavailable. Please reload the studio.')),
-  ...stock.map(async scene => {
-    try { photos.set(scene.key, await sampleAsset(scene)); }
-    catch { tell(`Sample unavailable: ${scene.name}`); }
-  })
-]);
-$('samples').replaceChildren(...stock.filter(scene => photos.has(scene.key)).map(scene => photoTile(photos.get(scene.key))));
+const fontLoad = displayFont().catch(() => notify('Display font unavailable. Please reload the studio.'));
+const samples = await Promise.all(stock.map(async entry => {
+  try {
+    const photo = await sampleAsset(entry);
+    library.set(photo.key, photo);
+    return photo;
+  } catch {
+    notify('Sample unavailable: ' + entry.name);
+    return null;
+  }
+}));
+ui.samples.replaceChildren(...samples.filter(Boolean).map(imageChoice));
+await fontLoad;
 await document.fonts.ready;
-ready = true;
+loaded = true;
 refresh();
