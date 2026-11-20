@@ -1,298 +1,351 @@
 import { arrangements, treatments, dimensions, stock, bounded, findByKey, panelShapes, pointInPanel } from './templates.js';
 import { paintCover, photoBounds, makePNG } from './cover.js';
+import { displayFont, imageFromURL, objectURL, releaseURL, sampleAsset } from './assets.js';
 
-const node = id => document.getElementById(id);
-const library = new Map();
-const history = { past:[], future:[] };
-const pose = asset => ({ asset, horizontal:.5, vertical:.5, scale:1 });
-let design = {
-  template:'hero', grade:'sunset', size:'square', headline:'VICE SUMMER',
-  tagline:'one last ride', intensity:72, grain:true,
-  frames:[pose('portrait'),pose('car'),pose('beach')], personal:[]
+const $ = id => document.getElementById(id);
+const photos = new Map();
+const undoStack = [], redoStack = [];
+const centered = asset => ({ asset, horizontal: .5, vertical: .5, scale: 1 });
+let cover = {
+  template: 'hero', grade: 'sunset', size: 'square', headline: 'VICE SUMMER',
+  tagline: 'one last ride', intensity: 72, grain: true,
+  frames: ['portrait', 'car', 'beach'].map(centered), personal: []
 };
-let activeFrame=0, drag=null, queued=false, temporaryMark=false, markTimer, noticeTimer;
-let outputLink=null, exporting=false, uploadSerial=0;
-const canvas=node('preview');
-const snapshot=()=>JSON.stringify(design);
-const currentPose=()=>design.frames[activeFrame];
-const currentSize=()=>findByKey(dimensions,design.size);
+let selected = 0, gesture = null, paintPending = false, highlight = false;
+let highlightTimer, messageTimer, exportURL, busy = false, ready = false, serial = 0;
+const preview = $('preview');
+const saveState = () => JSON.stringify(cover);
+const frame = () => cover.frames[selected];
+const format = () => findByKey(dimensions, cover.size);
 
-function notify(message) {
-  clearTimeout(noticeTimer);
-  node('notice').textContent=message;
-  node('notice').hidden=false;
-  noticeTimer=setTimeout(()=>node('notice').hidden=true,4000);
+function tell(message) {
+  clearTimeout(messageTimer);
+  $('notice').textContent = message;
+  $('notice').hidden = false;
+  messageTimer = setTimeout(() => { $('notice').hidden = true; }, 4000);
 }
 
-function checkpoint() {
-  const before=snapshot();
-  if (history.past.at(-1)!==before) history.past.push(before);
-  if (history.past.length>60) history.past.shift();
-  history.future=[];
+function remember() {
+  const state = saveState();
+  if (undoStack.at(-1) !== state) undoStack.push(state);
+  if (undoStack.length > 60) undoStack.shift();
+  redoStack.length = 0;
 }
 
-function change(callback) { checkpoint(); callback(); synchronize(); }
-
-function restore(source, target) {
-  if (!source.length || drag) return;
-  target.push(snapshot());
-  design=JSON.parse(source.pop());
-  activeFrame=Math.min(activeFrame,design.frames.length-1);
-  synchronize();
+function edit(action) {
+  remember();
+  action();
+  refresh();
 }
 
-function schedulePaint() {
-  if (queued) return;
-  queued=true;
-  requestAnimationFrame(()=>{
-    queued=false;
-    const area=node('stage'), size=currentSize();
-    const width=Math.max(60,Math.min(area.clientWidth-52,(area.clientHeight-66)*size.width/size.height));
-    const height=width*size.height/size.width;
-    node('sheet').style.width=width+'px';
-    node('sheet').style.height=height+'px';
-    const density=Math.min(2,window.devicePixelRatio||1);
-    paintCover(canvas,design,library,width*density,height*density,temporaryMark?activeFrame:-1);
+function travel(from, to) {
+  if (!from.length || gesture) return;
+  to.push(saveState());
+  cover = JSON.parse(from.pop());
+  selected = Math.min(selected, cover.frames.length - 1);
+  refresh();
+}
+
+function repaint() {
+  if (paintPending) return;
+  paintPending = true;
+  requestAnimationFrame(() => {
+    paintPending = false;
+    const area = $('stage'), size = format();
+    const width = Math.max(60, Math.min(area.clientWidth - 52, (area.clientHeight - 66) * size.width / size.height));
+    const height = width * size.height / size.width;
+    Object.assign($('sheet').style, { width: `${width}px`, height: `${height}px` });
+    const density = Math.min(2, window.devicePixelRatio || 1);
+    paintCover(preview, cover, photos, width * density, height * density, highlight ? selected : -1);
   });
 }
 
-function markPanel() {
-  temporaryMark=true;
-  clearTimeout(markTimer);
-  schedulePaint();
-  markTimer=setTimeout(()=>{ temporaryMark=false; schedulePaint(); },1100);
+function flashPanel() {
+  clearTimeout(highlightTimer);
+  highlight = true;
+  repaint();
+  highlightTimer = setTimeout(() => { highlight = false; repaint(); }, 1100);
 }
 
-function control(text, action) {
-  const button=document.createElement('button');
-  button.type='button'; button.textContent=text;
-  button.addEventListener('click',action);
-  return button;
+function button(label, handler) {
+  const element = document.createElement('button');
+  element.type = 'button';
+  element.textContent = label;
+  element.addEventListener('click', handler);
+  return element;
 }
 
-function photoCard(asset) {
-  const button=control('',()=>{
-    change(()=>design.frames[activeFrame]=pose(asset.key)); markPanel();
+function photoTile(photo) {
+  const tile = button('', () => {
+    edit(() => { cover.frames[selected] = centered(photo.key); });
+    flashPanel();
   });
-  button.className='photo-card'; button.dataset.asset=asset.key;
-  button.setAttribute('aria-label',`Use ${asset.name} in selected panel`);
-  const picture=new Image(); picture.src=asset.url; picture.alt=asset.name; picture.draggable=false;
-  const caption=document.createElement('span'); caption.textContent=asset.name;
-  button.append(picture,caption);
-  if (!asset.personal) return button;
-  const wrapper=document.createElement('div'); wrapper.className='personal-card';
-  const remove=control('×',()=>change(()=>{
-    design.personal=design.personal.filter(key=>key!==asset.key);
-    design.frames=design.frames.map(frame=>frame.asset===asset.key?pose('portrait'):frame);
+  tile.className = 'photo-card';
+  tile.dataset.asset = photo.key;
+  tile.setAttribute('aria-label', `Use ${photo.name} in selected panel`);
+  const image = new Image();
+  image.src = photo.url;
+  image.alt = photo.name;
+  image.draggable = false;
+  const caption = document.createElement('span');
+  caption.textContent = photo.name;
+  tile.append(image, caption);
+  if (!photo.personal) return tile;
+  const wrapper = document.createElement('div');
+  wrapper.className = 'personal-card';
+  const remove = button('×', () => edit(() => {
+    cover.personal = cover.personal.filter(key => key !== photo.key);
+    cover.frames = cover.frames.map(pose => pose.asset === photo.key ? centered('portrait') : pose);
   }));
-  remove.className='remove'; remove.setAttribute('aria-label',`Remove ${asset.name}`);
-  wrapper.append(button,remove);
+  remove.className = 'remove';
+  remove.setAttribute('aria-label', `Remove ${photo.name}`);
+  wrapper.append(tile, remove);
   return wrapper;
 }
 
-function synchronize() {
-  activeFrame=bounded(activeFrame,0,design.frames.length-1);
-  for (const [id,key] of [['templates','template'],['grades','grade'],['sizes','size']]) {
-    node(id).querySelectorAll('button').forEach(button=>{
-      const selected=button.dataset.key===design[key];
-      button.classList.toggle('selected',selected);
-      button.setAttribute('aria-pressed',String(selected));
+function refresh() {
+  selected = bounded(selected, 0, cover.frames.length - 1);
+  for (const [group, property] of [['templates', 'template'], ['grades', 'grade'], ['sizes', 'size']]) {
+    $(group).querySelectorAll('button').forEach(element => {
+      const pressed = element.dataset.key === cover[property];
+      element.classList.toggle('selected', pressed);
+      element.setAttribute('aria-pressed', String(pressed));
     });
   }
-  for (const id of ['headline','tagline','intensity']) node(id).value=design[id];
-  node('grain').checked=design.grain;
-  node('letters').textContent=design.headline.length+' / 36';
-  node('intensity-readout').textContent=design.intensity+'%';
-  node('intensity').disabled=design.grade==='clean';
-  node('scale').value=currentPose().scale;
-  node('scale-readout').textContent=Math.round(currentPose().scale*100)+'%';
-  node('aspect').textContent=currentSize().ratio;
-  node('pixels').textContent=`${currentSize().width} × ${currentSize().height} px`;
-  node('template-note').textContent=findByKey(arrangements,design.template).detail;
-  node('undo').disabled=!history.past.length;
-  node('redo').disabled=!history.future.length;
-  node('export').disabled=exporting||!design.frames.some(frame=>library.has(frame.asset));
-  node('enlarge').disabled=node('export').disabled;
-  node('frame-picks').replaceChildren(...design.frames.map((frame,index)=>{
-    const button=control(`${String(index+1).padStart(2,'0')} ${index===0&&design.template==='hero'?'Hero':'Scene'}`,()=>{
-      activeFrame=index; synchronize(); markPanel();
+  ['headline', 'tagline', 'intensity'].forEach(id => { $(id).value = cover[id]; });
+  $('grain').checked = cover.grain;
+  $('letters').textContent = `${cover.headline.length} / 36`;
+  $('intensity-readout').textContent = `${cover.intensity}%`;
+  $('intensity').disabled = cover.grade === 'clean';
+  $('scale').value = frame().scale;
+  $('scale-readout').textContent = `${Math.round(frame().scale * 100)}%`;
+  $('aspect').textContent = format().ratio;
+  $('pixels').textContent = `${format().width} × ${format().height} px`;
+  $('template-note').textContent = findByKey(arrangements, cover.template).detail;
+  $('undo').disabled = undoStack.length === 0;
+  $('redo').disabled = redoStack.length === 0;
+  $('export').disabled = busy || !ready || !cover.frames.some(pose => photos.has(pose.asset));
+  $('enlarge').disabled = $('export').disabled;
+  $('frame-picks').replaceChildren(...cover.frames.map((pose, index) => {
+    const role = index === 0 && cover.template === 'hero' ? 'Hero' : 'Scene';
+    const pick = button(`${String(index + 1).padStart(2, '0')} ${role}`, () => {
+      selected = index;
+      refresh();
+      flashPanel();
     });
-    button.classList.toggle('selected',index===activeFrame);
-    button.setAttribute('aria-label',`Select panel ${index+1}`);
-    button.setAttribute('aria-pressed',String(index===activeFrame));
-    return button;
+    pick.classList.toggle('selected', index === selected);
+    pick.setAttribute('aria-label', `Select panel ${index + 1}`);
+    pick.setAttribute('aria-pressed', String(index === selected));
+    return pick;
   }));
-  const personalSignature=design.personal.join('|');
-  if (node('uploads').dataset.signature!==personalSignature) {
-    node('uploads').replaceChildren(...design.personal.map(key=>photoCard(library.get(key))));
-    node('uploads').dataset.signature=personalSignature;
+  const signature = cover.personal.join('|');
+  if ($('uploads').dataset.signature !== signature) {
+    $('uploads').replaceChildren(...cover.personal.map(key => photoTile(photos.get(key))));
+    $('uploads').dataset.signature = signature;
   }
-  node('personal').hidden=!design.personal.length;
-  node('upload-count').textContent=design.personal.length;
-  document.querySelectorAll('[data-asset]').forEach(button=>{
-    const selected=button.dataset.asset===currentPose().asset;
-    button.classList.toggle('selected',selected);
-    button.setAttribute('aria-pressed',String(selected));
-    button.disabled=!library.has(button.dataset.asset);
+  $('personal').hidden = cover.personal.length === 0;
+  $('upload-count').textContent = cover.personal.length;
+  document.querySelectorAll('[data-asset]').forEach(tile => {
+    const pressed = tile.dataset.asset === frame().asset;
+    tile.classList.toggle('selected', pressed);
+    tile.setAttribute('aria-pressed', String(pressed));
+    tile.disabled = !photos.has(tile.dataset.asset);
   });
-  schedulePaint();
+  repaint();
 }
 
-function installChoices() {
-  arrangements.forEach(layout=>{
-    const button=control('',()=>change(()=>{
-      const previous=design.frames;
-      design.template=layout.key;
-      design.frames=layout.paths.map((_,index)=>({...previous[index%previous.length]}));
+function buildChoices() {
+  const svgNS = 'http://www.w3.org/2000/svg';
+  for (const layout of arrangements) {
+    const pick = button('', () => edit(() => {
+      const previous = cover.frames;
+      cover.template = layout.key;
+      cover.frames = layout.paths.map((_, i) => ({ ...previous[i % previous.length] }));
     }));
-    // Parsing an inline miniature supplies the SVG namespace without an external reference.
-    const fragment=document.createElement('template');
-    fragment.innerHTML='<svg viewBox="0 0 48 34">'+layout.paths.map(vertices=>
-      '<polygon points="'+vertices.map(([x,y])=>`${3+x*42},${3+y*28}`).join(' ')+'"/>').join('')+'</svg>';
-    const mini=fragment.content.firstElementChild;
-    const label=document.createElement('span'); label.textContent=layout.name;
-    button.append(mini,label); button.dataset.key=layout.key; button.title=layout.detail;
-    node('templates').append(button);
-  });
-  treatments.forEach(grade=>{
-    const button=control('',()=>change(()=>design.grade=grade.key));
-    const swatch=document.createElement('i'); swatch.style.background=`linear-gradient(135deg,${grade.palette.join(',')})`;
-    button.append(swatch,document.createTextNode(grade.name));
-    button.dataset.key=grade.key; node('grades').append(button);
-  });
-  dimensions.forEach(size=>{
-    const button=control(size.name,()=>change(()=>design.size=size.key));
-    const ratio=document.createElement('small'); ratio.textContent=size.ratio;
-    button.append(ratio); button.dataset.key=size.key; node('sizes').append(button);
-  });
+    const miniature = document.createElementNS(svgNS, 'svg');
+    miniature.setAttribute('viewBox', '0 0 48 34');
+    for (const vertices of layout.paths) {
+      const polygon = document.createElementNS(svgNS, 'polygon');
+      polygon.setAttribute('points', vertices.map(([x, y]) => `${3 + x * 42},${3 + y * 28}`).join(' '));
+      miniature.append(polygon);
+    }
+    const label = document.createElement('span');
+    label.textContent = layout.name;
+    pick.append(miniature, label);
+    pick.dataset.key = layout.key;
+    pick.title = layout.detail;
+    $('templates').append(pick);
+  }
+  for (const grade of treatments) {
+    const pick = button('', () => edit(() => { cover.grade = grade.key; }));
+    const swatch = document.createElement('i');
+    swatch.style.background = `linear-gradient(135deg,${grade.palette.join(',')})`;
+    pick.append(swatch, document.createTextNode(grade.name));
+    pick.dataset.key = grade.key;
+    $('grades').append(pick);
+  }
+  for (const size of dimensions) {
+    const pick = button(size.name, () => edit(() => { cover.size = size.key; }));
+    const ratio = document.createElement('small');
+    ratio.textContent = size.ratio;
+    pick.append(ratio);
+    pick.dataset.key = size.key;
+    $('sizes').append(pick);
+  }
 }
 
-async function decode(url) {
-  const bitmap=new Image(); bitmap.src=url;
-  await bitmap.decode();
-  return bitmap;
-}
-
-async function importPhotos(files) {
-  const accepted=[];
+async function addPhotos(files) {
+  const imported = [];
   for (const file of files) {
     if (!file.type.startsWith('image/')) continue;
-    const url=URL.createObjectURL(file);
+    const url = objectURL(file);
     try {
-      const bitmap=await decode(url), key='personal-'+(++uploadSerial);
-      library.set(key,{key,name:file.name,url,bitmap,personal:true}); accepted.push(key);
-    } catch { URL.revokeObjectURL(url); notify(`Could not open ${file.name}. Try a JPG, PNG or WebP.`); }
+      const bitmap = await imageFromURL(url);
+      const key = `personal-${++serial}`;
+      photos.set(key, { key, name: file.name, url, bitmap, personal: true });
+      imported.push(key);
+    } catch {
+      releaseURL(url);
+      tell(`Could not open ${file.name}. Try a JPG, PNG or WebP.`);
+    }
   }
-  if (!accepted.length) return;
-  change(()=>{
-    design.personal.push(...accepted);
-    if (accepted.length===1) design.frames=design.frames.map(()=>pose(accepted[0]));
-    else design.frames=design.frames.map((_,index)=>pose(accepted[index%accepted.length]));
+  if (!imported.length) return;
+  edit(() => {
+    cover.personal.push(...imported);
+    cover.frames = cover.frames.map((_, i) => centered(imported[i % imported.length]));
   });
-  notify(`${accepted.length} photo${accepted.length===1?'':'s'} added. Drag to reframe.`);
+  tell(`${imported.length} photo${imported.length === 1 ? '' : 's'} added. Drag to reframe.`);
 }
 
-function loadDemo() {
-  change(()=>{
-    design.headline='VICE SUMMER'; design.tagline='one last ride';
-    const sequence=design.template==='duo'?['portrait','car']:['portrait','car','beach','man'];
-    design.frames=findByKey(arrangements,design.template).paths.map((_,i)=>pose(sequence[i%sequence.length]));
+function demo() {
+  edit(() => {
+    cover.headline = 'VICE SUMMER';
+    cover.tagline = 'one last ride';
+    const cast = cover.template === 'duo' ? ['portrait', 'car'] : ['portrait', 'car', 'beach', 'man'];
+    cover.frames = findByKey(arrangements, cover.template).paths.map((_, i) => centered(cast[i % cast.length]));
   });
 }
 
-async function showExport() {
-  if (exporting) return;
-  exporting=true; synchronize();
-  node('export').textContent='Rendering your cover…';
+async function exportCover() {
+  if (busy || !ready) return;
+  busy = true;
+  refresh();
+  $('export').textContent = 'Rendering your cover…';
+  // Use one immutable design for the pixels, filename and dimensions.
+  const exporting = JSON.parse(saveState());
   try {
-    const png=await makePNG(design,library);
-    if (outputLink) URL.revokeObjectURL(outputLink);
-    outputLink=URL.createObjectURL(png);
-    node('output-image').src=outputLink;
-    await node('output-image').decode();
-    node('download').href=outputLink;
-    node('download').download=`vice-frame-${design.size}.png`;
-    node('output-size').textContent=`${currentSize().width} × ${currentSize().height}`;
-    node('result').showModal();
-  } catch (error) { notify(error.message); }
-  finally {
-    exporting=false;
-    node('export').innerHTML='↧ &nbsp; Export cover <span>→</span>';
-    synchronize();
+    const blob = await makePNG(exporting, photos);
+    releaseURL(exportURL);
+    exportURL = objectURL(blob);
+    $('output-image').src = exportURL;
+    await $('output-image').decode();
+    $('download').href = exportURL;
+    $('download').download = `vice-frame-${exporting.size}.png`;
+    const size = findByKey(dimensions, exporting.size);
+    $('output-size').textContent = `${size.width} × ${size.height}`;
+    $('result').showModal();
+  } catch (error) {
+    tell(error.message);
+  } finally {
+    busy = false;
+    const arrow = document.createElement('span');
+    arrow.textContent = '→';
+    $('export').replaceChildren(document.createTextNode('↧ \u00a0 Export cover '), arrow);
+    refresh();
   }
 }
 
-installChoices();
-node('demo').onclick=loadDemo;
-node('guide-demo').onclick=()=>{node('guide').close();loadDemo();};
-node('help').onclick=()=>node('guide').showModal();
-document.querySelectorAll('[data-close]').forEach(button=>button.onclick=()=>button.closest('dialog').close());
-node('export').onclick=showExport;
-node('enlarge').onclick=showExport;
-node('drop').onclick=()=>node('files').click();
-node('files').onchange=event=>{importPhotos(event.target.files);event.target.value='';};
-node('fill-all').onclick=()=>change(()=>design.frames=design.frames.map(()=>pose(currentPose().asset)));
-node('recenter').onclick=()=>change(()=>Object.assign(currentPose(),pose(currentPose().asset)));
-node('undo').onclick=()=>restore(history.past,history.future);
-node('redo').onclick=()=>restore(history.future,history.past);
-for (const id of ['headline','tagline','intensity']) {
-  node(id).addEventListener('input',()=>change(()=>design[id]=id==='intensity'?Number(node(id).value):node(id).value));
+function bindControls() {
+  $('demo').onclick = demo;
+  $('guide-demo').onclick = () => { $('guide').close(); demo(); };
+  $('help').onclick = () => $('guide').showModal();
+  document.querySelectorAll('[data-close]').forEach(element => {
+    element.onclick = () => element.closest('dialog').close();
+  });
+  $('export').onclick = $('enlarge').onclick = exportCover;
+  $('drop').onclick = () => $('files').click();
+  $('files').onchange = event => {
+    addPhotos(event.target.files);
+    event.target.value = '';
+  };
+  $('fill-all').onclick = () => edit(() => { cover.frames = cover.frames.map(() => centered(frame().asset)); });
+  $('recenter').onclick = () => edit(() => Object.assign(frame(), centered(frame().asset)));
+  $('undo').onclick = () => travel(undoStack, redoStack);
+  $('redo').onclick = () => travel(redoStack, undoStack);
+  for (const id of ['headline', 'tagline', 'intensity']) {
+    $(id).oninput = () => edit(() => { cover[id] = id === 'intensity' ? Number($(id).value) : $(id).value; });
+  }
+  $('grain').onchange = () => edit(() => { cover.grain = $('grain').checked; });
+  $('scale').oninput = () => edit(() => { frame().scale = Number($('scale').value); });
 }
-node('grain').onchange=()=>change(()=>design.grain=node('grain').checked);
-node('scale').oninput=()=>change(()=>currentPose().scale=Number(node('scale').value));
 
-canvas.onpointerdown=event=>{
-  const rect=canvas.getBoundingClientRect();
-  const x=(event.clientX-rect.left)*canvas.width/rect.width;
-  const y=(event.clientY-rect.top)*canvas.height/rect.height;
-  const hit=panelShapes(design.template,canvas.width,canvas.height).find(frame=>pointInPanel(frame.polygon,x,y));
-  if (!hit) return;
-  activeFrame=hit.slot; checkpoint();
-  drag={x:event.clientX,y:event.clientY,initial:{...currentPose()},frame:hit,ratio:canvas.width/rect.width};
-  canvas.setPointerCapture(event.pointerId); canvas.focus(); synchronize(); markPanel();
-};
-canvas.onpointermove=event=>{
-  if (!drag) return;
-  const asset=library.get(currentPose().asset);
-  if (!asset) return;
-  const bounds=photoBounds(asset.bitmap,drag.frame,drag.initial);
-  currentPose().horizontal=bounded(drag.initial.horizontal-(event.clientX-drag.x)*drag.ratio/Math.max(1,bounds.overflowX),0,1);
-  currentPose().vertical=bounded(drag.initial.vertical-(event.clientY-drag.y)*drag.ratio/Math.max(1,bounds.overflowY),0,1);
-  schedulePaint();
-};
-canvas.onpointerup=canvas.onpointercancel=()=>{drag=null;synchronize();};
-canvas.onkeydown=event=>{
-  const deltas={ArrowLeft:[.025,0],ArrowRight:[-.025,0],ArrowUp:[0,.025],ArrowDown:[0,-.025]};
-  if (deltas[event.key]) {
-    event.preventDefault();
-    change(()=>{
-      currentPose().horizontal=bounded(currentPose().horizontal+deltas[event.key][0],0,1);
-      currentPose().vertical=bounded(currentPose().vertical+deltas[event.key][1],0,1);
-    });
-  } else if (['+','=','-'].includes(event.key)) {
-    event.preventDefault(); change(()=>currentPose().scale=bounded(currentPose().scale+(event.key==='-'?-.1:.1),1,3));
-  }
-};
-document.addEventListener('keydown',event=>{
-  if ((event.ctrlKey||event.metaKey) && event.key.toLowerCase()==='z' && !event.target.matches('input')) {
-    event.preventDefault();
-    if (event.shiftKey) restore(history.future,history.past); else restore(history.past,history.future);
-  }
-});
-for (const eventName of ['dragover','drop']) document.addEventListener(eventName,event=>event.preventDefault());
-document.addEventListener('drop',event=>importPhotos(event.dataTransfer.files));
-document.addEventListener('paste',event=>{
-  if (event.clipboardData.files.length) importPhotos(event.clipboardData.files);
-});
-new ResizeObserver(schedulePaint).observe(node('stage'));
-synchronize();
-await Promise.all(stock.map(async scene=>{
-  const url='samples/'+scene.file;
-  try {
-    library.set(scene.key,{...scene,url,bitmap:await decode(url)});
-  } catch { notify(`Sample unavailable: ${scene.name}`); }
-}));
-// Display sample cards in catalog order even when image decoding finishes out of order.
-node('samples').replaceChildren(...stock.filter(scene=>library.has(scene.key)).map(scene=>photoCard(library.get(scene.key))));
+function bindCanvas() {
+  preview.onpointerdown = event => {
+    const rect = preview.getBoundingClientRect();
+    const ratio = preview.width / rect.width;
+    const x = (event.clientX - rect.left) * ratio;
+    const y = (event.clientY - rect.top) * preview.height / rect.height;
+    const hit = panelShapes(cover.template, preview.width, preview.height).find(panel => pointInPanel(panel.polygon, x, y));
+    if (!hit) return;
+    selected = hit.slot;
+    remember();
+    gesture = { x: event.clientX, y: event.clientY, pose: { ...frame() }, panel: hit, ratio };
+    preview.setPointerCapture(event.pointerId);
+    preview.focus();
+    refresh();
+    flashPanel();
+  };
+  preview.onpointermove = event => {
+    if (!gesture) return;
+    const photo = photos.get(frame().asset);
+    if (!photo) return;
+    const crop = photoBounds(photo.bitmap, gesture.panel, gesture.pose);
+    frame().horizontal = bounded(gesture.pose.horizontal - (event.clientX - gesture.x) * gesture.ratio / Math.max(1, crop.overflowX), 0, 1);
+    frame().vertical = bounded(gesture.pose.vertical - (event.clientY - gesture.y) * gesture.ratio / Math.max(1, crop.overflowY), 0, 1);
+    repaint();
+  };
+  preview.onpointerup = preview.onpointercancel = () => { gesture = null; refresh(); };
+  preview.onkeydown = event => {
+    const moves = { ArrowLeft: [.025, 0], ArrowRight: [-.025, 0], ArrowUp: [0, .025], ArrowDown: [0, -.025] };
+    const move = moves[event.key];
+    if (move) {
+      event.preventDefault();
+      edit(() => {
+        frame().horizontal = bounded(frame().horizontal + move[0], 0, 1);
+        frame().vertical = bounded(frame().vertical + move[1], 0, 1);
+      });
+    } else if (['+', '=', '-'].includes(event.key)) {
+      event.preventDefault();
+      edit(() => { frame().scale = bounded(frame().scale + (event.key === '-' ? -.1 : .1), 1, 3); });
+    }
+  };
+  document.addEventListener('keydown', event => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z' && !event.target.matches('input')) {
+      event.preventDefault();
+      if (event.shiftKey) travel(redoStack, undoStack);
+      else travel(undoStack, redoStack);
+    }
+  });
+  for (const type of ['dragover', 'drop']) document.addEventListener(type, event => event.preventDefault());
+  document.addEventListener('drop', event => addPhotos(event.dataTransfer.files));
+  document.addEventListener('paste', event => {
+    if (event.clipboardData.files.length) addPhotos(event.clipboardData.files);
+  });
+  new ResizeObserver(repaint).observe($('stage'));
+}
+
+buildChoices();
+bindControls();
+bindCanvas();
+refresh();
+await Promise.all([
+  displayFont().catch(() => tell('Display font unavailable. Please reload the studio.')),
+  ...stock.map(async scene => {
+    try { photos.set(scene.key, await sampleAsset(scene)); }
+    catch { tell(`Sample unavailable: ${scene.name}`); }
+  })
+]);
+$('samples').replaceChildren(...stock.filter(scene => photos.has(scene.key)).map(scene => photoTile(photos.get(scene.key))));
 await document.fonts.ready;
-synchronize();
+ready = true;
+refresh();

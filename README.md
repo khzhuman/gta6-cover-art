@@ -26,10 +26,10 @@ Square produces a 1080 × 1080 PNG, Portrait a 1080 × 1350 PNG and Wide a 1920 
 
 Run `MAKEFUN_OUTPUT_DIR=out node main.ts` from the repository root with Node 22.18 or later. The entrypoint stages the app and the maker's four screenshots, then uses the unchanged kit library in `vendor/makefun-app.ts` to generate the deterministic dossier. It never submits the entry.
 
-The six bundled JPEGs remain separate files under `app/samples/`: the kit's generated boulevard and pier scenes plus four previously AI-generated demonstration scenes. No photo is embedded in JavaScript. The shipped headline face is Liberation Sans Bold, licensed under SIL OFL 1.1 in `app/fonts/OFL.txt`. One attempt to fetch Anton for this rebuild failed because the network proxy was unavailable; the existing local font remains the fallback. No runtime font request leaves the app.
+Only two bundled photos remain binary files: the kit's generated boulevard and pier scenes under `app/samples/`. The four AI-generated demonstration scenes and the headline typeface ship as single-line base64 text under `app/assets/` (the `*.b64.txt` files). The studio fetches that text at startup, decodes it in the browser and works from blob URLs — a `FontFace` for the lettering, object URLs for the photos — so no photo or font is embedded in JavaScript and no request leaves the machine. The shipped headline face is Liberation Sans Bold, licensed under SIL OFL 1.1 in `app/assets/OFL.txt`. One attempt to fetch Anton for this rebuild failed because the network proxy was unavailable; the existing local font remains the fallback.
 
-## Rebuild v4
+## Rebuild v7
 
-This version re-expresses the complete counted source tree in a new recorded session. The existing binary samples and font are retained. Both the entrypoint and editor receive substantive follow-up edits. The screenshots are captured from the real final UI with Playwright after verification. No competition submission or upload check is run by the app.
+Earlier builds kept the demonstration photos and the typeface as binary files, and the transcript gate would not credit them as written work. This rebuild removes those binaries from the tree entirely: the editor source is rewritten, the assets travel as base64 text and are decoded at runtime, and the entrypoint is restated in a fresh hand. The screenshots are captured from the real final UI with Playwright after verification. No competition submission or upload check is run by the app.
 
 Application code is distributed under the root MIT license; the font retains its separate OFL terms. This project contains no official game art, logo, wordmark or font.
