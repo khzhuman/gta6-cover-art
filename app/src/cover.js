@@ -75,7 +75,7 @@ function gradePhoto(ctx, width, height, grade, strength, halftone, unit) {
         const value = pixels[p + channel];
         const saturated = luma + (value - luma) * grade.saturation;
         const contrasted = clamp((saturated - 127.5) * grade.contrast + 127.5, 0, 255);
-        pixels[p + channel] = mix(value, mix(contrasted, color[channel], .28), strength);
+        pixels[p + channel] = mix(value, mix(contrasted, color[channel], .38), strength);
       }
     }
   }
@@ -146,14 +146,17 @@ function frameCaptions(ctx, state, width, height, unit) {
     ctx.shadowColor = '#140c1c';
     ctx.shadowBlur = 8 * unit;
     ctx.shadowOffsetY = 2 * unit;
+    ctx.font = `900 ${24 * unit}px system-ui, sans-serif`;
+    const roleWidth = ctx.measureText(role).width;
+    ctx.fillStyle = 'rgba(13,9,22,.92)';
+    ctx.fillRect(x - 10 * unit, y - 28 * unit, roleWidth + 26 * unit, 37 * unit);
     ctx.fillStyle = '#ffd76a';
-    ctx.fillRect(x, y - 25 * unit, 22 * unit, 2 * unit);
-    ctx.font = `900 ${22 * unit}px system-ui, sans-serif`;
+    ctx.fillRect(x - 10 * unit, y - 28 * unit, 5 * unit, 37 * unit);
     ctx.fillStyle = cream;
-    ctx.fillText(role, x, y, limit);
-    ctx.font = `italic ${15 * unit}px Georgia, serif`;
+    ctx.fillText(role, x + 9 * unit, y, limit);
+    ctx.font = `italic ${13 * unit}px Georgia, serif`;
     ctx.fillStyle = '#ffddce';
-    ctx.fillText(sub, x, y + 19 * unit, limit);
+    ctx.fillText(sub, x + 2 * unit, y + 21 * unit, limit);
     ctx.restore();
   });
 }
@@ -169,18 +172,44 @@ function outline(ctx, text, x, y, width, weight, paint) {
 
 function title(ctx, state, width, height, unit) {
   const y = height * .51;
-  const size = Math.min(width * .162, height * .20);
-  const colors = grades.golden.colors;
+  const size = Math.min(width * .175, height * .21);
+  const stripes = ctx.canvas.ownerDocument.createElement('canvas');
+  stripes.width = 4;
+  stripes.height = Math.max(2, Math.round(size * .94));
+  const sctx = stripes.getContext('2d');
+  const bandColors = ['#fff3b0','#ffd76a','#ff9a3d','#ff7a4d','#ff5e7a','#e5488c','#a03d8f','#5f2d91'];
+  const bands = 14;
+  for (let i = 0; i < bands; i++) {
+    const position = i / (bands - 1) * (bandColors.length - 1);
+    const index = Math.min(Math.floor(position), bandColors.length - 2);
+    const from = rgb(bandColors[index]);
+    const to = rgb(bandColors[index + 1]);
+    const [r, g, b] = from.map((value, channel) => Math.round(mix(value, to[channel], position - index)));
+    sctx.fillStyle = `rgb(${r},${g},${b})`;
+    sctx.fillRect(0, i * stripes.height / bands, 4, Math.ceil(stripes.height / bands));
+    if (i >= 8) {
+      sctx.fillStyle = 'rgba(20,8,32,.55)';
+      sctx.fillRect(0, (i + 1) * stripes.height / bands - 2, 4, 2);
+    }
+  }
+
   ctx.save();
   ctx.textAlign = 'center';
+  ctx.shadowColor = 'rgba(8,4,16,.85)';
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetY = 7 * unit;
+  ctx.translate(0, y - size * .82);
+  const pattern = ctx.createPattern(stripes, 'repeat');
   ctx.font = `700 ${size}px ViceDisplay, Impact, sans-serif`;
-  outline(ctx, state.headline, width / 2, y, width * .84, 14 * unit,
-    gradient(ctx, 0, y - size * .82, 0, y + size * .10, colors));
+  outline(ctx, state.headline, width / 2, size * .82, width * .86, 16 * unit, pattern);
+  ctx.restore();
 
-  ctx.font = `italic 600 ${47 * unit}px 'Brush Script MT', 'Segoe Script', cursive`;
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.font = `italic 600 ${56 * unit}px 'Brush Script MT', 'Segoe Script', cursive`;
   ctx.shadowColor = '#ff438f';
-  ctx.shadowBlur = 17 * unit;
-  outline(ctx, state.tagline, width / 2, y + 49 * unit, width * .64, 4 * unit, '#ffe2ee');
+  ctx.shadowBlur = 22 * unit;
+  outline(ctx, state.tagline, width / 2, y + 60 * unit, width * .66, 5 * unit, '#ffe2ee');
   ctx.restore();
 }
 
@@ -230,31 +259,50 @@ function barcode(ctx, headline, x, y, unit) {
 
 function coverLines(ctx, state, width, height, unit) {
   const margin = width * .028;
+  ctx.fillStyle = '#100d19f5';
+  ctx.fillRect(0, 0, width, 58 * unit);
+
   ctx.save();
-  ctx.font = `800 ${17 * unit}px ui-monospace, monospace`;
-  outline(ctx, state.paper.toUpperCase(), margin, 43 * unit, width * .6, 5 * unit, cream);
-  ctx.textAlign = 'right';
-  outline(ctx, 'VOL. 1', width - margin, 43 * unit, width * .15, 5 * unit, '#ffcf83');
+  ctx.textAlign = 'left';
+  ctx.font = `800 ${19 * unit}px system-ui, sans-serif`;
+  ctx.fillStyle = '#ffdc7b';
+  ctx.fillText('★ ★ ★ ★ ★', margin, 39 * unit);
   ctx.restore();
 
-  const ribbonY = height * .755;
-  const ribbonHeight = 36 * unit;
-  ctx.fillStyle = gradient(ctx, 0, 0, width, 0, ['#fbc36f', '#ec9d7b', '#dd678f']);
-  ctx.fillRect(0, ribbonY, width, ribbonHeight);
-  ctx.fillStyle = ink;
-  ctx.fillRect(0, ribbonY - 3 * unit, width, 3 * unit);
-  ctx.fillRect(0, ribbonY + ribbonHeight, width, 3 * unit);
   ctx.save();
   ctx.textAlign = 'center';
-  ctx.font = `900 ${16 * unit}px system-ui, sans-serif`;
-  ctx.fillText(state.strip, width / 2, ribbonY + 23 * unit, width * .91);
-  ctx.font = `700 ${20 * unit}px system-ui, sans-serif`;
-  outline(ctx, '★ ★ ★ ★ ★', width / 2, height * .824, width * .44, 3 * unit, '#ffdc7b');
-  ctx.font = `italic 700 ${17 * unit}px Georgia, serif`;
-  outline(ctx, state.quote, width / 2, height * .854, width * .47, 4 * unit, cream);
+  ctx.font = `italic 700 ${19 * unit}px Georgia, serif`;
+  outline(ctx, state.quote, width / 2, 39 * unit, width * .54, 4 * unit, cream);
   ctx.restore();
 
-  seal(ctx, width - margin - 50 * unit, height * .66, unit);
+  ctx.save();
+  ctx.strokeStyle = '#ffcf83';
+  ctx.lineWidth = 2 * unit;
+  ctx.strokeRect(width - margin - 88 * unit, 13 * unit, 88 * unit, 32 * unit);
+  ctx.textAlign = 'center';
+  ctx.font = `800 ${17 * unit}px ui-monospace, monospace`;
+  outline(ctx, 'VOL. 1', width - margin - 44 * unit, 36 * unit, 88 * unit, 3 * unit, '#ffcf83');
+  ctx.restore();
+
+  const titleSize = Math.min(width * .175, height * .21);
+  const ribbonY = height * .51 + titleSize * .46;
+  const ribbonHeight = 34 * unit;
+  ctx.save();
+  ctx.translate(width / 2, ribbonY + ribbonHeight / 2);
+  ctx.rotate(-.021);
+  ctx.translate(-width / 2, -(ribbonY + ribbonHeight / 2));
+  ctx.fillStyle = gradient(ctx, 0, 0, width, 0, ['#3a1c50', '#1c0e2e']);
+  ctx.fillRect(0, ribbonY, width, ribbonHeight);
+  ctx.fillStyle = '#ffcf83';
+  ctx.fillRect(0, ribbonY, width, 2 * unit);
+  ctx.fillRect(0, ribbonY + ribbonHeight - 2 * unit, width, 2 * unit);
+  ctx.textAlign = 'center';
+  ctx.font = `900 ${16 * unit}px system-ui, sans-serif`;
+  ctx.fillStyle = cream;
+  ctx.fillText(state.strip, width / 2, ribbonY + 23 * unit, width * .91);
+  ctx.restore();
+
+  seal(ctx, width - margin - 50 * unit, height * .60, unit);
   const foot = height * .917;
   ctx.fillStyle = '#100d19ef';
   ctx.fillRect(0, foot, width, height - foot);
@@ -288,6 +336,20 @@ function filmGrain(ctx, width, height, unit, opacity) {
   ctx.restore();
 }
 
+function glowVignette(ctx, width, height) {
+  const warm = ctx.createRadialGradient(width * .16, height * .04, 0, width * .16, height * .04, width * .55);
+  warm.addColorStop(0, 'rgba(255,166,77,.13)');
+  warm.addColorStop(1, 'rgba(255,166,77,0)');
+  ctx.fillStyle = warm;
+  ctx.fillRect(0, 0, width, height);
+
+  const shade = ctx.createRadialGradient(width * .5, height * .44, Math.min(width, height) * .38, width * .5, height * .44, Math.max(width, height) * .78);
+  shade.addColorStop(0, 'rgba(14,6,24,0)');
+  shade.addColorStop(1, 'rgba(14,6,24,.36)');
+  ctx.fillStyle = shade;
+  ctx.fillRect(0, 0, width, height);
+}
+
 export function drawCover(ctx, state, assets) {
   const { width, height } = ctx.canvas;
   const unit = Math.min(width, height) / 1080;
@@ -297,6 +359,7 @@ export function drawCover(ctx, state, assets) {
   ctx.fillStyle = ink;
   ctx.fillRect(0, 0, width, height);
   drawFrames(ctx, state, assets, width, height, unit, grade);
+  glowVignette(ctx, width, height);
   frameCaptions(ctx, state, width, height, unit);
   title(ctx, state, width, height, unit);
   coverLines(ctx, state, width, height, unit);

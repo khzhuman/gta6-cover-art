@@ -21,7 +21,7 @@ export const samples = [
 export const grades = {
   golden: {
     name: 'Golden Hour', colors: ['#ffd76a', '#ff8f4d', '#e5488c', '#5f2d91'],
-    contrast: 1.30, saturation: 1.35, grain: .22,
+    contrast: 1.34, saturation: 1.50, grain: .22,
   },
   print: {
     name: 'Poster Print', colors: ['#fff1bc', '#f19b77', '#bc4477', '#352246'],
@@ -35,6 +35,19 @@ function panel(role, sub, points, label) {
 
 // Neighboring panels share vertices so the divider is continuous at every aspect.
 export const templates = {
+  showcase: {
+    name: 'Showcase', note: 'A leading portrait with three scenes stacked on each side.',
+    demo: ['boss', 'driver', 'man', 'racer', 'portrait', 'lifeguard', 'car'],
+    panels: [
+      panel('THE BOSS', 'Owns the night', [[.345,.05],[.655,.05],[.675,.95],[.325,.95]], [.365,.865]),
+      panel('THE DRIVER', 'Never misses a turn', [[0,.05],[.345,.05],[.338,.383],[0,.383]], [.03,.295]),
+      panel('THE MUSCLE', 'Settles every score', [[0,.383],[.338,.383],[.331,.70],[0,.70]], [.03,.615]),
+      panel('THE RACER', 'Redline at midnight', [[0,.70],[.331,.70],[.325,.95],[0,.95]], [.03,.865]),
+      panel('THE SIREN', 'Trouble sounds sweet', [[.655,.05],[1,.05],[1,.383],[.662,.383]], [.685,.295]),
+      panel('THE LOOKOUT', 'Sees the storm first', [[.662,.383],[1,.383],[1,.70],[.669,.70]], [.685,.565]),
+      panel('THE GETAWAY', 'Leave the lights behind', [[.669,.70],[1,.70],[1,.95],[.675,.95]], [.685,.865]),
+    ],
+  },
   ensemble: {
     name: 'Ensemble', note: 'One leading frame and six supporting scenes cut on the diagonal.',
     demo: ['driver', 'boss', 'car', 'portrait', 'racer', 'man', 'beach'],

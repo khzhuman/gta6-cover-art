@@ -21,9 +21,9 @@ function makePanels(template, previous = []) {
 }
 
 let state = {
-  template: 'ensemble', grade: 'golden', size: 'wide', active: 0,
-  photo: null, uploads: [], panels: makePanels(templates.ensemble),
-  intensity: 85, grain: true, halftone: true,
+  template: 'showcase', grade: 'golden', size: 'wide', active: 0,
+  photo: null, uploads: [], panels: makePanels(templates.showcase),
+  intensity: 100, grain: true, halftone: true,
   headline: 'VICE SUMMER', tagline: 'one last summer',
   strip: 'SEVEN LIVES · ONE COASTLINE · NO WAY BACK',
   quote: '“PURE GOLDEN-HOUR MAYHEM” — THE HARBOR GAZETTE',
